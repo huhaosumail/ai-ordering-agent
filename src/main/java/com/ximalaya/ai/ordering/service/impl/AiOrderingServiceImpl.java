@@ -30,6 +30,7 @@ public class AiOrderingServiceImpl implements AiOrderingService {
     private final DishRepository dishRepository;
     private final String apiKey;
     private final String baseUrl;
+    private final String model;
     private final OkHttpClient httpClient;
 
     private static final String ORDER_PARSING_PROMPT = """
@@ -60,10 +61,12 @@ public class AiOrderingServiceImpl implements AiOrderingService {
 
     public AiOrderingServiceImpl(DishRepository dishRepository,
                                  @Value("${ai.deepseek.api-key}") String apiKey,
-                                 @Value("${ai.deepseek.base-url}") String baseUrl) {
+                                 @Value("${ai.deepseek.base-url}") String baseUrl,
+                                 @Value("${ai.deepseek.model}") String model) {
         this.dishRepository = dishRepository;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
+        this.model = model;
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(java.time.Duration.ofSeconds(30))
                 .readTimeout(java.time.Duration.ofSeconds(60))
@@ -140,7 +143,7 @@ public class AiOrderingServiceImpl implements AiOrderingService {
     private String callDeepSeek(String prompt) {
         try {
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", "deepseek-chat");
+            requestBody.put("model", model);
             
             List<Map<String, String>> messages = new ArrayList<>();
             Map<String, String> userMessage = new HashMap<>();
