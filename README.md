@@ -5,7 +5,7 @@
 ## 技术栈
 
 - **框架**: Spring Boot 3.2.5 + Spring WebFlux (响应式)
-- **数据库**: SQLite + R2DBC (响应式数据库)
+- **数据库**: H2 + R2DBC (响应式数据库)
 - **大模型**: DeepSeek Chat API
 - **HTTP客户端**: OkHttp 4.12.0
 - **语言**: Java 21
@@ -44,7 +44,8 @@
 ai:
   deepseek:
     api-key: sk-9dd346e5f5a6498998cb932a146959f1
-    base-url: https://api.orderAgent.io/v1
+    base-url: https://api.deepseek.com/v1
+    model: deepseek-chat
 ```
 
 ### 运行方式
@@ -62,6 +63,10 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 ```
 
 服务启动后访问: http://localhost:8080
+
+### H2控制台
+
+访问 H2 数据库控制台: http://localhost:8080/h2-console
 
 ## API 接口
 
@@ -99,21 +104,34 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 
 ## API 使用示例
 
-### 1. 自然语言点餐
+### 1. 自然语言点餐解析
 
 ```bash
-curl -X POST http://localhost:8080/api/ai/order \
+curl -X POST http://localhost:8080/api/ai/order/parse \
   -H "Content-Type: application/json" \
   -d '{"input":"我要一份宫保鸡丁和两份鱼香肉丝"}'
 ```
 
-### 2. 获取菜品推荐
+**响应示例**:
+```json
+{"code":200,"message":"success","data":{"userId":null,"tableNo":null,"items":[{"dishId":1,"quantity":1},{"dishId":2,"quantity":2}],"remark":""}}
+```
+
+### 2. AI智能点餐
+
+```bash
+curl -X POST http://localhost:8080/api/ai/order \
+  -H "Content-Type: application/json" \
+  -d '{"input":"我要一份宫保鸡丁"}'
+```
+
+### 3. 获取菜品推荐
 
 ```bash
 curl -X GET "http://localhost:8080/api/ai/recommend?preferences=喜欢辣的"
 ```
 
-### 3. 创建订单
+### 4. 创建订单
 
 ```bash
 curl -X POST http://localhost:8080/api/orders \
@@ -125,6 +143,12 @@ curl -X POST http://localhost:8080/api/orders \
     ],
     "remark": "少辣"
   }'
+```
+
+### 5. 查询菜品列表
+
+```bash
+curl http://localhost:8080/api/dishes
 ```
 
 ## 项目结构
@@ -152,6 +176,14 @@ ai-ordering-agent/
 - **异步处理**: 使用 Mono/Flux 进行异步数据流处理
 - **高性能**: 支持高并发场景
 - **事件驱动**: 基于 Reactor 响应式编程模型
+
+## 测试数据
+
+系统启动时自动初始化以下测试数据：
+
+**分类**: 中式菜肴、西式料理、甜点饮品
+
+**菜品**: 宫保鸡丁、鱼香肉丝、麻婆豆腐、糖醋里脊、黑椒牛柳、意大利面、提拉米苏、芒果布丁
 
 ## License
 
