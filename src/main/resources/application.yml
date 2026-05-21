@@ -1,0 +1,25 @@
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: ai-ordering-agent
+  datasource:
+    url: jdbc:sqlite:./example_db.sqlite
+    driver-class-name: org.sqlite.JDBC
+    username: admin
+    password: password
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    com.ximalaya.ai.ordering: DEBUG
+    org.hibernate.SQL: DEBUG
