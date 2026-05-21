@@ -1,76 +1,77 @@
-
 package com.ximalaya.ai.ordering.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
-@Entity
-@Table(name = "category")
+import java.time.LocalDateTime;
+
+@Table("category")
 public class Category {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "name", nullable = false, length = 50)
+    @Column("name")
     private String name;
 
-    @Column(name = "description", length = 200)
+    @Column("description")
     private String description;
 
-    @Column(name = "sort_order")
+    @Column("sort_order")
     private Integer sortOrder = 0;
 
-    @Column(name = "icon_url", length = 500)
-    private String iconUrl;
+    @Column("created_at")
+    private LocalDateTime createdAt;
 
     public Category() {}
 
-    public Category(Long id, String name, String description, Integer sortOrder, String iconUrl) {
+    public Category(Long id, String name, String description, Integer sortOrder, LocalDateTime createdAt) {
         this.id = id;
         this.name = name;
         this.description = description;
         this.sortOrder = sortOrder != null ? sortOrder : 0;
-        this.iconUrl = iconUrl;
+        this.createdAt = createdAt;
     }
 
-    public static CategoryBuilder builder() {
-        return new CategoryBuilder();
+    public static Builder builder() {
+        return new Builder();
     }
 
-    public static class CategoryBuilder {
+    public static class Builder {
         private Long id;
         private String name;
         private String description;
         private Integer sortOrder = 0;
-        private String iconUrl;
+        private LocalDateTime createdAt;
 
-        public CategoryBuilder id(Long id) {
+        public Builder id(Long id) {
             this.id = id;
             return this;
         }
 
-        public CategoryBuilder name(String name) {
+        public Builder name(String name) {
             this.name = name;
             return this;
         }
 
-        public CategoryBuilder description(String description) {
+        public Builder description(String description) {
             this.description = description;
             return this;
         }
 
-        public CategoryBuilder sortOrder(Integer sortOrder) {
+        public Builder sortOrder(Integer sortOrder) {
             this.sortOrder = sortOrder;
             return this;
         }
 
-        public CategoryBuilder iconUrl(String iconUrl) {
-            this.iconUrl = iconUrl;
+        public Builder createdAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
             return this;
         }
 
         public Category build() {
-            return new Category(id, name, description, sortOrder, iconUrl);
+            return new Category(id, name, description, sortOrder, createdAt);
         }
     }
 
@@ -86,6 +87,6 @@ public class Category {
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
 
-    public String getIconUrl() { return iconUrl; }
-    public void setIconUrl(String iconUrl) { this.iconUrl = iconUrl; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

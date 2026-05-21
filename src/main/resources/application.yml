@@ -1,25 +1,43 @@
-
 server:
   port: 8080
 
 spring:
   application:
     name: ai-ordering-agent
-  datasource:
-    url: jdbc:sqlite:./example_db.sqlite
-    driver-class-name: org.sqlite.JDBC
-    username: admin
-    password: password
-  jpa:
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
-    hibernate:
-      ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
+  
+  r2dbc:
+    url: r2dbc:h2:mem:///orderdb
+    initialization-mode: never
+  
+  sql:
+    init:
+      mode: never
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
 
 logging:
   level:
     com.ximalaya.ai.ordering: DEBUG
-    org.hibernate.SQL: DEBUG
+    org.springframework.r2dbc: DEBUG
+
+agent:
+  ordering:
+    prompt:
+      system: |
+        你是一个智能点餐助手，帮助用户进行点餐。
+        请根据用户的自然语言输入，解析出菜品名称和数量。
+        如果有不清楚的地方，可以询问用户。
+      few-shot: |
+        示例1: "我要一份宫保鸡丁和两份鱼香肉丝"
+        输出: {"items":[{"name":"宫保鸡丁","quantity":1},{"name":"鱼香肉丝","quantity":2}]}
+        
+        示例2: "来个招牌菜"
+        输出: {"items":[],"suggestion":"请问您想选择哪个招牌菜呢？"}
+
+ai:
+  deepseek:
+    api-key: sk-9dd346e5f5a6498998cb932a146959f1
+    base-url: https://api.orderAgent.io/v1

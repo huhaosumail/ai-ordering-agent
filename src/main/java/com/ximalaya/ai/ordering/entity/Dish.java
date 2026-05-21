@@ -1,49 +1,56 @@
-
 package com.ximalaya.ai.ordering.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "dish")
+@Table("dish")
 public class Dish {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "name", nullable = false, length = 100)
+    @Column("name")
     private String name;
 
-    @Column(name = "description", length = 500)
+    @Column("description")
     private String description;
 
-    @Column(name = "price", nullable = false, precision = 10, scale = 2)
+    @Column("price")
     private BigDecimal price;
 
-    @Column(name = "category", length = 50)
+    @Column("category")
     private String category;
 
-    @Column(name = "image_url", length = 500)
+    @Column("image_url")
     private String imageUrl;
 
-    @Column(name = "is_available", nullable = false)
+    @Column("is_available")
     private Boolean isAvailable = true;
 
-    @Column(name = "spicy_level")
-    private Integer spicyLevel = 0;
-
-    @Column(name = "rating")
-    private Double rating = 0.0;
-
-    @Column(name = "sales_count")
+    @Column("sales_count")
     private Integer salesCount = 0;
+
+    @Column("rating")
+    private BigDecimal rating = BigDecimal.ZERO;
+
+    @Column("rating_count")
+    private Integer ratingCount = 0;
+
+    @Column("created_at")
+    private LocalDateTime createdAt;
+
+    @Column("updated_at")
+    private LocalDateTime updatedAt;
 
     public Dish() {}
 
     public Dish(Long id, String name, String description, BigDecimal price, String category,
-                String imageUrl, Boolean isAvailable, Integer spicyLevel, Double rating, Integer salesCount) {
+                String imageUrl, Boolean isAvailable, Integer salesCount, BigDecimal rating,
+                Integer ratingCount, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -51,16 +58,18 @@ public class Dish {
         this.category = category;
         this.imageUrl = imageUrl;
         this.isAvailable = isAvailable != null ? isAvailable : true;
-        this.spicyLevel = spicyLevel != null ? spicyLevel : 0;
-        this.rating = rating != null ? rating : 0.0;
         this.salesCount = salesCount != null ? salesCount : 0;
+        this.rating = rating != null ? rating : BigDecimal.ZERO;
+        this.ratingCount = ratingCount != null ? ratingCount : 0;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
     }
 
-    public static DishBuilder builder() {
-        return new DishBuilder();
+    public static Builder builder() {
+        return new Builder();
     }
 
-    public static class DishBuilder {
+    public static class Builder {
         private Long id;
         private String name;
         private String description;
@@ -68,62 +77,75 @@ public class Dish {
         private String category;
         private String imageUrl;
         private Boolean isAvailable = true;
-        private Integer spicyLevel = 0;
-        private Double rating = 0.0;
         private Integer salesCount = 0;
+        private BigDecimal rating = BigDecimal.ZERO;
+        private Integer ratingCount = 0;
+        private LocalDateTime createdAt;
+        private LocalDateTime updatedAt;
 
-        public DishBuilder id(Long id) {
+        public Builder id(Long id) {
             this.id = id;
             return this;
         }
 
-        public DishBuilder name(String name) {
+        public Builder name(String name) {
             this.name = name;
             return this;
         }
 
-        public DishBuilder description(String description) {
+        public Builder description(String description) {
             this.description = description;
             return this;
         }
 
-        public DishBuilder price(BigDecimal price) {
+        public Builder price(BigDecimal price) {
             this.price = price;
             return this;
         }
 
-        public DishBuilder category(String category) {
+        public Builder category(String category) {
             this.category = category;
             return this;
         }
 
-        public DishBuilder imageUrl(String imageUrl) {
+        public Builder imageUrl(String imageUrl) {
             this.imageUrl = imageUrl;
             return this;
         }
 
-        public DishBuilder isAvailable(Boolean isAvailable) {
+        public Builder isAvailable(Boolean isAvailable) {
             this.isAvailable = isAvailable;
             return this;
         }
 
-        public DishBuilder spicyLevel(Integer spicyLevel) {
-            this.spicyLevel = spicyLevel;
-            return this;
-        }
-
-        public DishBuilder rating(Double rating) {
-            this.rating = rating;
-            return this;
-        }
-
-        public DishBuilder salesCount(Integer salesCount) {
+        public Builder salesCount(Integer salesCount) {
             this.salesCount = salesCount;
             return this;
         }
 
+        public Builder rating(BigDecimal rating) {
+            this.rating = rating;
+            return this;
+        }
+
+        public Builder ratingCount(Integer ratingCount) {
+            this.ratingCount = ratingCount;
+            return this;
+        }
+
+        public Builder createdAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
+            return this;
+        }
+
+        public Builder updatedAt(LocalDateTime updatedAt) {
+            this.updatedAt = updatedAt;
+            return this;
+        }
+
         public Dish build() {
-            return new Dish(id, name, description, price, category, imageUrl, isAvailable, spicyLevel, rating, salesCount);
+            return new Dish(id, name, description, price, category, imageUrl,
+                    isAvailable, salesCount, rating, ratingCount, createdAt, updatedAt);
         }
     }
 
@@ -148,12 +170,18 @@ public class Dish {
     public Boolean getIsAvailable() { return isAvailable; }
     public void setIsAvailable(Boolean isAvailable) { this.isAvailable = isAvailable; }
 
-    public Integer getSpicyLevel() { return spicyLevel; }
-    public void setSpicyLevel(Integer spicyLevel) { this.spicyLevel = spicyLevel; }
-
-    public Double getRating() { return rating; }
-    public void setRating(Double rating) { this.rating = rating; }
-
     public Integer getSalesCount() { return salesCount; }
     public void setSalesCount(Integer salesCount) { this.salesCount = salesCount; }
+
+    public BigDecimal getRating() { return rating; }
+    public void setRating(BigDecimal rating) { this.rating = rating; }
+
+    public Integer getRatingCount() { return ratingCount; }
+    public void setRatingCount(Integer ratingCount) { this.ratingCount = ratingCount; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

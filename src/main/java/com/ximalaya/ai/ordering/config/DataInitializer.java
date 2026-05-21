@@ -1,18 +1,19 @@
-
 package com.ximalaya.ai.ordering.config;
 
 import com.ximalaya.ai.ordering.entity.Category;
 import com.ximalaya.ai.ordering.entity.Dish;
 import com.ximalaya.ai.ordering.repository.CategoryRepository;
 import com.ximalaya.ai.ordering.repository.DishRepository;
+import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
-import java.util.List;
+import java.time.LocalDateTime;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
@@ -21,148 +22,81 @@ public class DataInitializer implements CommandLineRunner {
 
     private final CategoryRepository categoryRepository;
     private final DishRepository dishRepository;
+    private final DatabaseClient databaseClient;
 
-    public DataInitializer(CategoryRepository categoryRepository, DishRepository dishRepository) {
+    public DataInitializer(CategoryRepository categoryRepository, 
+                          DishRepository dishRepository,
+                          DatabaseClient databaseClient) {
         this.categoryRepository = categoryRepository;
         this.dishRepository = dishRepository;
+        this.databaseClient = databaseClient;
     }
 
     @Override
     public void run(String... args) {
-        if (categoryRepository.count() == 0) {
-            log.info("初始化分类数据...");
-            initCategories();
-        }
+        log.info("Initializing database schema and test data...");
 
-        if (dishRepository.count() == 0) {
-            log.info("初始化菜品数据...");
-            initDishes();
-        }
-    }
-
-    private void initCategories() {
-        List<Category> categories = Arrays.asList(
-                Category.builder().name("热销菜品").description("人气爆款").sortOrder(1).build(),
-                Category.builder().name("川菜").description("麻辣鲜香").sortOrder(2).build(),
-                Category.builder().name("粤菜").description("清淡鲜美").sortOrder(3).build(),
-                Category.builder().name("素菜").description("健康营养").sortOrder(4).build(),
-                Category.builder().name("汤品").description("滋补养生").sortOrder(5).build(),
-                Category.builder().name("主食").description("饱腹首选").sortOrder(6).build()
-        );
-        categoryRepository.saveAll(categories);
-    }
-
-    private void initDishes() {
-        List<Dish> dishes = Arrays.asList(
-                Dish.builder()
-                        .name("麻辣香锅")
-                        .description("精选食材，麻辣鲜香，回味无穷")
-                        .price(new BigDecimal("88.00"))
-                        .category("热销菜品")
-                        .spicyLevel(4)
-                        .rating(4.8)
-                        .salesCount(1256)
-                        .build(),
-                Dish.builder()
-                        .name("水煮牛肉")
-                        .description("鲜嫩牛肉，麻辣过瘾")
-                        .price(new BigDecimal("68.00"))
-                        .category("川菜")
-                        .spicyLevel(4)
-                        .rating(4.7)
-                        .salesCount(892)
-                        .build(),
-                Dish.builder()
-                        .name("宫保鸡丁")
-                        .description("鸡肉嫩滑，花生酥脆")
-                        .price(new BigDecimal("48.00"))
-                        .category("川菜")
-                        .spicyLevel(2)
-                        .rating(4.6)
-                        .salesCount(756)
-                        .build(),
-                Dish.builder()
-                        .name("白灼虾")
-                        .description("新鲜大虾，原汁原味")
-                        .price(new BigDecimal("128.00"))
-                        .category("粤菜")
-                        .spicyLevel(0)
-                        .rating(4.9)
-                        .salesCount(634)
-                        .build(),
-                Dish.builder()
-                        .name("清蒸鲈鱼")
-                        .description("鲜嫩爽滑，营养丰富")
-                        .price(new BigDecimal("98.00"))
-                        .category("粤菜")
-                        .spicyLevel(0)
-                        .rating(4.8)
-                        .salesCount(521)
-                        .build(),
-                Dish.builder()
-                        .name("蒜蓉西兰花")
-                        .description("清脆爽口，健康美味")
-                        .price(new BigDecimal("28.00"))
-                        .category("素菜")
-                        .spicyLevel(0)
-                        .rating(4.5)
-                        .salesCount(445)
-                        .build(),
-                Dish.builder()
-                        .name("麻婆豆腐")
-                        .description("麻辣鲜香，下饭神器")
-                        .price(new BigDecimal("32.00"))
-                        .category("川菜")
-                        .spicyLevel(3)
-                        .rating(4.7)
-                        .salesCount(1102)
-                        .build(),
-                Dish.builder()
-                        .name("佛跳墙")
-                        .description("滋补佳品，美味绝伦")
-                        .price(new BigDecimal("288.00"))
-                        .category("粤菜")
-                        .spicyLevel(0)
-                        .rating(4.9)
-                        .salesCount(234)
-                        .build(),
-                Dish.builder()
-                        .name("番茄鸡蛋汤")
-                        .description("营养丰富，老少皆宜")
-                        .price(new BigDecimal("22.00"))
-                        .category("汤品")
-                        .spicyLevel(0)
-                        .rating(4.4)
-                        .salesCount(876)
-                        .build(),
-                Dish.builder()
-                        .name("担担面")
-                        .description("川味经典，麻辣鲜香")
-                        .price(new BigDecimal("26.00"))
-                        .category("主食")
-                        .spicyLevel(3)
-                        .rating(4.6)
-                        .salesCount(567)
-                        .build(),
-                Dish.builder()
-                        .name("回锅肉")
-                        .description("肥而不腻，香气四溢")
-                        .price(new BigDecimal("45.00"))
-                        .category("川菜")
-                        .spicyLevel(2)
-                        .rating(4.6)
-                        .salesCount(723)
-                        .build(),
-                Dish.builder()
-                        .name("干煸四季豆")
-                        .description("外焦里嫩，咸香可口")
-                        .price(new BigDecimal("35.00"))
-                        .category("川菜")
-                        .spicyLevel(2)
-                        .rating(4.5)
-                        .salesCount(432)
-                        .build()
-        );
-        dishRepository.saveAll(dishes);
+        databaseClient.sql("CREATE TABLE IF NOT EXISTS category (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "name VARCHAR(100) NOT NULL, " +
+                "description VARCHAR(500), " +
+                "sort_order INTEGER DEFAULT 0, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")").fetch().rowsUpdated()
+        .then(databaseClient.sql("CREATE TABLE IF NOT EXISTS dish (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "name VARCHAR(100) NOT NULL, " +
+                "description VARCHAR(500), " +
+                "price DECIMAL(10,2) NOT NULL, " +
+                "category VARCHAR(50), " +
+                "image_url VARCHAR(500), " +
+                "is_available BOOLEAN DEFAULT TRUE, " +
+                "sales_count INTEGER DEFAULT 0, " +
+                "rating DECIMAL(3,1), " +
+                "rating_count INTEGER DEFAULT 0, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE TABLE IF NOT EXISTS orders (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "order_no VARCHAR(50) NOT NULL, " +
+                "total_amount DECIMAL(10,2) NOT NULL, " +
+                "status VARCHAR(20) DEFAULT 'PENDING', " +
+                "remark VARCHAR(500), " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE TABLE IF NOT EXISTS order_item (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "order_id BIGINT NOT NULL, " +
+                "dish_id BIGINT NOT NULL, " +
+                "quantity INTEGER NOT NULL, " +
+                "unit_price DECIMAL(10,2) NOT NULL, " +
+                "FOREIGN KEY(order_id) REFERENCES orders(id), " +
+                "FOREIGN KEY(dish_id) REFERENCES dish(id)" +
+                ")").fetch().rowsUpdated())
+        .then(categoryRepository.deleteAll())
+        .thenMany(Flux.just(
+                Category.builder().name("中式菜肴").description("传统中式菜品").sortOrder(1).createdAt(LocalDateTime.now()).build(),
+                Category.builder().name("西式料理").description("欧美风味菜品").sortOrder(2).createdAt(LocalDateTime.now()).build(),
+                Category.builder().name("甜点饮品").description("甜点和饮品").sortOrder(3).createdAt(LocalDateTime.now()).build()
+        ).flatMap(categoryRepository::save))
+        .then(dishRepository.deleteAll())
+        .thenMany(Flux.just(
+                Dish.builder().name("宫保鸡丁").description("经典川菜，鸡肉鲜嫩，花生酥脆").price(new BigDecimal("38.00")).category("中式菜肴").imageUrl("https://example.com/gongbao.jpg").isAvailable(true).salesCount(1250).rating(new BigDecimal("4.8")).ratingCount(320).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("鱼香肉丝").description("酸甜微辣，口感丰富").price(new BigDecimal("32.00")).category("中式菜肴").imageUrl("https://example.com/yuxiang.jpg").isAvailable(true).salesCount(980).rating(new BigDecimal("4.7")).ratingCount(285).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("麻婆豆腐").description("麻辣鲜香，下饭神器").price(new BigDecimal("28.00")).category("中式菜肴").imageUrl("https://example.com/mapo.jpg").isAvailable(true).salesCount(1100).rating(new BigDecimal("4.9")).ratingCount(310).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("糖醋里脊").description("酸甜适口，外酥里嫩").price(new BigDecimal("42.00")).category("中式菜肴").imageUrl("https://example.com/tangcu.jpg").isAvailable(true).salesCount(850).rating(new BigDecimal("4.6")).ratingCount(240).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("黑椒牛柳").description("鲜嫩多汁，黑椒浓郁").price(new BigDecimal("48.00")).category("西式料理").imageUrl("https://example.com/beef.jpg").isAvailable(true).salesCount(720).rating(new BigDecimal("4.8")).ratingCount(195).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("意大利面").description("经典意式风味").price(new BigDecimal("36.00")).category("西式料理").imageUrl("https://example.com/pasta.jpg").isAvailable(true).salesCount(680).rating(new BigDecimal("4.5")).ratingCount(180).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("提拉米苏").description("意大利经典甜点").price(new BigDecimal("28.00")).category("甜点饮品").imageUrl("https://example.com/tiramisu.jpg").isAvailable(true).salesCount(520).rating(new BigDecimal("4.9")).ratingCount(155).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
+                Dish.builder().name("芒果布丁").description("清爽可口，果香浓郁").price(new BigDecimal("18.00")).category("甜点饮品").imageUrl("https://example.com/mango.jpg").isAvailable(true).salesCount(450).rating(new BigDecimal("4.7")).ratingCount(130).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build()
+        ).flatMap(dishRepository::save))
+        .doOnComplete(() -> log.info("Database initialization completed successfully"))
+        .onErrorResume(e -> {
+            log.error("Database initialization failed: {}", e.getMessage());
+            return Flux.empty();
+        })
+        .subscribe();
     }
 }

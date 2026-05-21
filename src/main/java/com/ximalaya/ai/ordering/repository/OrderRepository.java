@@ -1,22 +1,17 @@
-
 package com.ximalaya.ai.ordering.repository;
 
 import com.ximalaya.ai.ordering.entity.Order;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Repository
-public interface OrderRepository extends JpaRepository<Order, Long> {
+public interface OrderRepository extends ReactiveCrudRepository<Order, Long> {
 
-    Optional<Order> findByOrderNo(String orderNo);
+    Mono<Order> findByOrderNo(String orderNo);
 
-    List<Order> findByUserId(Long userId);
+    Flux<Order> findByUserId(Long userId);
 
-    List<Order> findByStatus(String status);
-
-    List<Order> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+    Flux<Order> findByStatus(String status);
 }

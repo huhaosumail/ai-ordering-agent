@@ -1,7 +1,7 @@
-
 package com.ximalaya.ai.ordering.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public class DishResponse {
 
@@ -12,14 +12,17 @@ public class DishResponse {
     private String category;
     private String imageUrl;
     private Boolean isAvailable;
-    private Integer spicyLevel;
-    private Double rating;
     private Integer salesCount;
+    private Double rating;
+    private Integer ratingCount;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 
     public DishResponse() {}
 
     public DishResponse(Long id, String name, String description, BigDecimal price, String category,
-                       String imageUrl, Boolean isAvailable, Integer spicyLevel, Double rating, Integer salesCount) {
+                       String imageUrl, Boolean isAvailable, Integer salesCount, Double rating, 
+                       Integer ratingCount, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -27,9 +30,11 @@ public class DishResponse {
         this.category = category;
         this.imageUrl = imageUrl;
         this.isAvailable = isAvailable;
-        this.spicyLevel = spicyLevel;
-        this.rating = rating;
         this.salesCount = salesCount;
+        this.rating = rating;
+        this.ratingCount = ratingCount;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
     }
 
     public static DishResponseBuilder builder() {
@@ -44,9 +49,11 @@ public class DishResponse {
         private String category;
         private String imageUrl;
         private Boolean isAvailable;
-        private Integer spicyLevel;
-        private Double rating;
         private Integer salesCount;
+        private Double rating;
+        private Integer ratingCount;
+        private LocalDateTime createdAt;
+        private LocalDateTime updatedAt;
 
         public DishResponseBuilder id(Long id) {
             this.id = id;
@@ -83,8 +90,8 @@ public class DishResponse {
             return this;
         }
 
-        public DishResponseBuilder spicyLevel(Integer spicyLevel) {
-            this.spicyLevel = spicyLevel;
+        public DishResponseBuilder salesCount(Integer salesCount) {
+            this.salesCount = salesCount;
             return this;
         }
 
@@ -93,13 +100,24 @@ public class DishResponse {
             return this;
         }
 
-        public DishResponseBuilder salesCount(Integer salesCount) {
-            this.salesCount = salesCount;
+        public DishResponseBuilder ratingCount(Integer ratingCount) {
+            this.ratingCount = ratingCount;
+            return this;
+        }
+
+        public DishResponseBuilder createdAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
+            return this;
+        }
+
+        public DishResponseBuilder updatedAt(LocalDateTime updatedAt) {
+            this.updatedAt = updatedAt;
             return this;
         }
 
         public DishResponse build() {
-            return new DishResponse(id, name, description, price, category, imageUrl, isAvailable, spicyLevel, rating, salesCount);
+            return new DishResponse(id, name, description, price, category, imageUrl, 
+                    isAvailable, salesCount, rating, ratingCount, createdAt, updatedAt);
         }
     }
 
@@ -124,12 +142,18 @@ public class DishResponse {
     public Boolean getIsAvailable() { return isAvailable; }
     public void setIsAvailable(Boolean isAvailable) { this.isAvailable = isAvailable; }
 
-    public Integer getSpicyLevel() { return spicyLevel; }
-    public void setSpicyLevel(Integer spicyLevel) { this.spicyLevel = spicyLevel; }
+    public Integer getSalesCount() { return salesCount; }
+    public void setSalesCount(Integer salesCount) { this.salesCount = salesCount; }
 
     public Double getRating() { return rating; }
     public void setRating(Double rating) { this.rating = rating; }
 
-    public Integer getSalesCount() { return salesCount; }
-    public void setSalesCount(Integer salesCount) { this.salesCount = salesCount; }
+    public Integer getRatingCount() { return ratingCount; }
+    public void setRatingCount(Integer ratingCount) { this.ratingCount = ratingCount; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

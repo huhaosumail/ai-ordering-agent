@@ -1,130 +1,131 @@
-
 package com.ximalaya.ai.ordering.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "orders")
+@Table("orders")
 public class Order {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "order_no", nullable = false, unique = true, length = 50)
+    @Column("order_no")
     private String orderNo;
 
-    @Column(name = "user_id", nullable = false)
+    @Column("user_id")
     private Long userId;
 
-    @Column(name = "table_no", length = 20)
+    @Column("table_no")
     private String tableNo;
 
-    @Column(name = "status", nullable = false, length = 20)
-    private String status = "PENDING";
+    @Column("status")
+    private String status;
 
-    @Column(name = "total_amount", nullable = false, precision = 10, scale = 2)
+    @Column("total_amount")
     private BigDecimal totalAmount;
 
-    @Column(name = "items", columnDefinition = "TEXT")
+    @Column("items")
     private String items;
 
-    @Column(name = "remark", length = 500)
+    @Column("remark")
     private String remark;
 
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @Column("created_at")
+    private LocalDateTime createdAt;
 
-    @Column(name = "updated_at")
+    @Column("updated_at")
     private LocalDateTime updatedAt;
 
     public Order() {}
 
     public Order(Long id, String orderNo, Long userId, String tableNo, String status,
-                 BigDecimal totalAmount, String items, String remark, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                 BigDecimal totalAmount, String items, String remark,
+                 LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.orderNo = orderNo;
         this.userId = userId;
         this.tableNo = tableNo;
-        this.status = status != null ? status : "PENDING";
+        this.status = status;
         this.totalAmount = totalAmount;
         this.items = items;
         this.remark = remark;
-        this.createdAt = createdAt != null ? createdAt : LocalDateTime.now();
+        this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
-    public static OrderBuilder builder() {
-        return new OrderBuilder();
+    public static Builder builder() {
+        return new Builder();
     }
 
-    public static class OrderBuilder {
+    public static class Builder {
         private Long id;
         private String orderNo;
         private Long userId;
         private String tableNo;
-        private String status = "PENDING";
+        private String status;
         private BigDecimal totalAmount;
         private String items;
         private String remark;
-        private LocalDateTime createdAt = LocalDateTime.now();
+        private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
 
-        public OrderBuilder id(Long id) {
+        public Builder id(Long id) {
             this.id = id;
             return this;
         }
 
-        public OrderBuilder orderNo(String orderNo) {
+        public Builder orderNo(String orderNo) {
             this.orderNo = orderNo;
             return this;
         }
 
-        public OrderBuilder userId(Long userId) {
+        public Builder userId(Long userId) {
             this.userId = userId;
             return this;
         }
 
-        public OrderBuilder tableNo(String tableNo) {
+        public Builder tableNo(String tableNo) {
             this.tableNo = tableNo;
             return this;
         }
 
-        public OrderBuilder status(String status) {
+        public Builder status(String status) {
             this.status = status;
             return this;
         }
 
-        public OrderBuilder totalAmount(BigDecimal totalAmount) {
+        public Builder totalAmount(BigDecimal totalAmount) {
             this.totalAmount = totalAmount;
             return this;
         }
 
-        public OrderBuilder items(String items) {
+        public Builder items(String items) {
             this.items = items;
             return this;
         }
 
-        public OrderBuilder remark(String remark) {
+        public Builder remark(String remark) {
             this.remark = remark;
             return this;
         }
 
-        public OrderBuilder createdAt(LocalDateTime createdAt) {
+        public Builder createdAt(LocalDateTime createdAt) {
             this.createdAt = createdAt;
             return this;
         }
 
-        public OrderBuilder updatedAt(LocalDateTime updatedAt) {
+        public Builder updatedAt(LocalDateTime updatedAt) {
             this.updatedAt = updatedAt;
             return this;
         }
 
         public Order build() {
-            return new Order(id, orderNo, userId, tableNo, status, totalAmount, items, remark, createdAt, updatedAt);
+            return new Order(id, orderNo, userId, tableNo, status, totalAmount,
+                    items, remark, createdAt, updatedAt);
         }
     }
 

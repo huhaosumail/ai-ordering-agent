@@ -1,65 +1,63 @@
+# AI Ordering Agent - 智能点餐 Agent 系统
 
-# AI Ordering Agent - 智能点餐系统
-
-基于 Spring Boot 3.2 和 AI 技术构建的智能点餐系统，提供完整的菜品管理、订单管理和分类管理功能。
+基于 Spring Boot WebFlux 和 DeepSeek 大模型构建的智能点餐系统，支持自然语言点餐和智能菜品推荐。
 
 ## 技术栈
 
+- **框架**: Spring Boot 3.2.5 + Spring WebFlux (响应式)
+- **数据库**: SQLite + R2DBC (响应式数据库)
+- **大模型**: DeepSeek Chat API
+- **HTTP客户端**: OkHttp 4.12.0
 - **语言**: Java 21
-- **框架**: Spring Boot 3.2.0
-- **数据库**: SQLite (嵌入式，无需额外安装)
-- **ORM**: Spring Data JPA
-- **构建工具**: Maven
 
-## 项目结构
+## 功能特性
 
-```
-ai-ordering-agent/
-├── src/main/java/com/ximalaya/ai/ordering/
-│   ├── Application.java          # 启动类
-│   ├── controller/               # 控制器层
-│   │   ├── DishController.java   # 菜品管理
-│   │   ├── OrderController.java  # 订单管理
-│   │   └── CategoryController.java # 分类管理
-│   ├── service/                  # 服务层
-│   │   ├── DishService.java
-│   │   ├── OrderService.java
-│   │   └── impl/
-│   ├── repository/               # 数据访问层
-│   ├── entity/                   # 实体类
-│   ├── dto/                      # 数据传输对象
-│   │   ├── request/
-│   │   └── response/
-│   ├── config/                   # 配置类
-│   │   └── DataInitializer.java # 数据初始化
-│   └── exception/                # 异常处理
-│       └── GlobalExceptionHandler.java
-├── src/main/resources/
-│   └── application.yml           # 应用配置
-└── pom.xml                       # Maven 配置
-```
+### 🍳 菜品管理
+- 菜品CRUD操作
+- 分类查询
+- 销量排行
+- 评分排行
+
+### 📋 订单管理
+- 创建订单
+- 查询订单列表
+- 查询订单详情
+- 更新订单状态
+- 取消订单
+
+### 🤖 AI智能点餐
+- **自然语言点餐**: 支持"我要一份宫保鸡丁和两份鱼香肉丝"
+- **智能推荐**: 根据用户偏好推荐菜品
 
 ## 快速开始
 
 ### 环境要求
 
 - JDK 21+
-- Maven 3.6+
+- Maven 3.9+
 
-### 构建项目
+### 配置说明
 
-```bash
-cd ai-ordering-agent
-mvn clean package -DskipTests
+在 `application.yml` 中配置 DeepSeek API：
+
+```yaml
+ai:
+  deepseek:
+    api-key: sk-9dd346e5f5a6498998cb932a146959f1
+    base-url: https://api.orderAgent.io/v1
 ```
 
-### 运行项目
+### 运行方式
 
+**开发模式**:
 ```bash
-# 方式1: 使用 Maven
+cd ai-ordering-agent
 mvn spring-boot:run
+```
 
-# 方式2: 运行打包后的 Jar
+**打包运行**:
+```bash
+mvn clean package
 java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 ```
 
@@ -71,75 +69,89 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| GET | /api/dishes | 获取菜品列表 |
-| GET | /api/dishes/{id} | 获取菜品详情 |
-| POST | /api/dishes | 创建菜品 |
-| PUT | /api/dishes/{id} | 更新菜品 |
-| DELETE | /api/dishes/{id} | 删除菜品 |
-| GET | /api/dishes/top-sales | 获取销量最高的菜品 |
-| GET | /api/dishes/top-rated | 获取评分最高的菜品 |
+| GET | `/api/dishes` | 获取所有可用菜品 |
+| GET | `/api/dishes/{id}` | 获取菜品详情 |
+| POST | `/api/dishes` | 创建菜品 |
+| PUT | `/api/dishes/{id}` | 更新菜品 |
+| DELETE | `/api/dishes/{id}` | 删除菜品 |
+| GET | `/api/dishes/category/{category}` | 按分类查询 |
+| GET | `/api/dishes/search?keyword=xxx` | 搜索菜品 |
+| GET | `/api/dishes/top-sales` | 销量排行 |
+| GET | `/api/dishes/top-rated` | 评分排行 |
 
 ### 订单管理
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| POST | /api/orders | 创建订单 |
-| GET | /api/orders/{id} | 获取订单详情 |
-| GET | /api/orders/no/{orderNo} | 根据订单号获取订单 |
-| GET | /api/orders/user/{userId} | 获取用户订单 |
-| PUT | /api/orders/{id}/status | 更新订单状态 |
-| PUT | /api/orders/{id}/cancel | 取消订单 |
+| POST | `/api/orders` | 创建订单 |
+| GET | `/api/orders` | 获取订单列表 |
+| GET | `/api/orders/{id}` | 获取订单详情 |
+| PUT | `/api/orders/{id}/status` | 更新订单状态 |
+| DELETE | `/api/orders/{id}` | 取消订单 |
 
-### 分类管理
+### AI智能点餐
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| GET | /api/categories | 获取所有分类 |
-| GET | /api/categories/{id} | 获取分类详情 |
-| POST | /api/categories | 创建分类 |
-| PUT | /api/categories/{id} | 更新分类 |
-| DELETE | /api/categories/{id} | 删除分类 |
+| POST | `/api/ai/order/parse` | 解析自然语言点餐 |
+| POST | `/api/ai/order` | AI智能点餐 |
+| GET | `/api/ai/recommend` | 获取菜品推荐 |
 
-## API 示例
+## API 使用示例
 
-### 创建订单
+### 1. 自然语言点餐
+
+```bash
+curl -X POST http://localhost:8080/api/ai/order \
+  -H "Content-Type: application/json" \
+  -d '{"input":"我要一份宫保鸡丁和两份鱼香肉丝"}'
+```
+
+### 2. 获取菜品推荐
+
+```bash
+curl -X GET "http://localhost:8080/api/ai/recommend?preferences=喜欢辣的"
+```
+
+### 3. 创建订单
 
 ```bash
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "userId": 1,
-    "tableNo": "A01",
     "items": [
       {"dishId": 1, "quantity": 2},
-      {"dishId": 4, "quantity": 1}
+      {"dishId": 2, "quantity": 1}
     ],
     "remark": "少辣"
   }'
 ```
 
-### 查询菜品列表
+## 项目结构
 
-```bash
-curl http://localhost:8080/api/dishes
+```
+ai-ordering-agent/
+├── src/main/java/com/ximalaya/ai/ordering/
+│   ├── controller/      # REST API 控制层
+│   ├── service/         # 业务逻辑层
+│   ├── repository/      # 数据访问层
+│   ├── entity/          # 数据库实体
+│   ├── dto/             # 数据传输对象
+│   ├── config/          # 配置类
+│   └── Application.java # 启动类
+├── src/main/resources/
+│   └── application.yml  # 配置文件
+└── pom.xml              # Maven配置
 ```
 
-### 查询销量最高的菜品
+## 响应式架构说明
 
-```bash
-curl http://localhost:8080/api/dishes/top-sales
-```
+本项目采用 Spring WebFlux 响应式架构，具有以下特点：
 
-## 数据库
-
-项目使用 SQLite 嵌入式数据库，无需额外安装数据库服务。数据库文件会自动创建在项目根目录下的 `example_db.sqlite`。
-
-## 初始数据
-
-系统启动时会自动初始化以下数据：
-
-- 6 个菜品分类（热销菜品、川菜、粤菜、素菜、汤品、主食）
-- 12 道示例菜品
+- **非阻塞IO**: 所有数据库操作使用 R2DBC
+- **异步处理**: 使用 Mono/Flux 进行异步数据流处理
+- **高性能**: 支持高并发场景
+- **事件驱动**: 基于 Reactor 响应式编程模型
 
 ## License
 

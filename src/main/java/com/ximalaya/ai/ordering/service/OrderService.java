@@ -1,24 +1,23 @@
-
 package com.ximalaya.ai.ordering.service;
 
 import com.ximalaya.ai.ordering.dto.request.OrderRequest;
 import com.ximalaya.ai.ordering.dto.response.OrderResponse;
-
-import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 public interface OrderService {
 
-    OrderResponse createOrder(OrderRequest request);
+    Mono<OrderResponse> createOrder(OrderRequest request);
 
-    OrderResponse getOrderById(Long id);
+    Mono<OrderResponse> getOrderById(Long id);
 
-    OrderResponse getOrderByNo(String orderNo);
+    Mono<OrderResponse> getOrderByNo(String orderNo);
 
-    List<OrderResponse> getOrdersByUserId(Long userId);
+    Flux<OrderResponse> getOrdersByUserId(Long userId);
 
-    List<OrderResponse> getOrdersByStatus(String status);
+    Flux<OrderResponse> getOrdersByStatus(String status);
 
-    OrderResponse updateOrderStatus(Long id, String status);
+    Mono<OrderResponse> updateOrderStatus(Long id, String status);
 
-    void cancelOrder(Long id);
+    Mono<Void> cancelOrder(Long id);
 }

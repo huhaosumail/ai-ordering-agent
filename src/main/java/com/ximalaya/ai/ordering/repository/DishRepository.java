@@ -1,24 +1,27 @@
-
 package com.ximalaya.ai.ordering.repository;
 
 import com.ximalaya.ai.ordering.entity.Dish;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.r2dbc.repository.Query;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
+import reactor.core.publisher.Flux;
 
 @Repository
-public interface DishRepository extends JpaRepository<Dish, Long> {
+public interface DishRepository extends ReactiveCrudRepository<Dish, Long> {
 
-    List<Dish> findByIsAvailableTrue();
+    Flux<Dish> findByIsAvailableTrue();
 
-    List<Dish> findByCategory(String category);
+    Flux<Dish> findByCategory(String category);
 
-    List<Dish> findByCategoryAndIsAvailableTrue(String category);
+    @Query("SELECT * FROM dish WHERE is_available = true ORDER BY sales_count DESC LIMIT :limit")
+    Flux<Dish> findTopSales(int limit);
 
-    List<Dish> findByNameContaining(String name);
+    @Query("SELECT * FROM dish WHERE is_available = true AND rating_count > 0 ORDER BY rating DESC LIMIT :limit")
+    Flux<Dish> findTopRated(int limit);
 
-    List<Dish> findTop10ByOrderBySalesCountDesc();
+    @Query("SELECT * FROM dish WHERE is_available = true AND (name LIKE :keyword OR description LIKE :keyword)")
+    Flux<Dish> searchByKeyword(String keyword);
 
-    List<Dish> findTop10ByOrderByRatingDesc();
+    @Query("SELECT * FROM dish WHERE name LIKE :name")
+    Flux<Dish> findByNameLike(String name);
 }

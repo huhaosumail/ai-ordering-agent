@@ -1,4 +1,3 @@
-
 package com.ximalaya.ai.ordering.service.impl;
 
 import com.ximalaya.ai.ordering.dto.request.OrderRequest;
@@ -8,21 +7,24 @@ import com.ximalaya.ai.ordering.entity.Order;
 import com.ximalaya.ai.ordering.repository.DishRepository;
 import com.ximalaya.ai.ordering.repository.OrderRepository;
 import com.ximalaya.ai.ordering.service.OrderService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class OrderServiceImpl implements OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderServiceImpl.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final OrderRepository orderRepository;
     private final DishRepository dishRepository;
@@ -33,115 +35,115 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @Transactional
-    public OrderResponse createOrder(OrderRequest request) {
+    public Mono<OrderResponse> createOrder(OrderRequest request) {
         log.debug("创建订单, 用户ID: {}, 桌号: {}", request.getUserId(), request.getTableNo());
 
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        List<OrderResponse.OrderItemResponse> items = new ArrayList<>();
+        return Flux.fromIterable(request.getItems())
+                .flatMap(item -> dishRepository.findById(item.getDishId())
+                        .switchIfEmpty(Mono.error(new RuntimeException("菜品不存在: " + item.getDishId())))
+                        .filter(Dish::getIsAvailable)
+                        .switchIfEmpty(Mono.error(new RuntimeException("菜品不可用"))))
+                .collectList()
+                .flatMap(dishes -> {
+                    BigDecimal totalAmount = BigDecimal.ZERO;
+                    List<OrderResponse.OrderItemResponse> items = new ArrayList<>();
 
-        for (OrderRequest.OrderItem item : request.getItems()) {
-            Dish dish = dishRepository.findById(item.getDishId())
-                    .orElseThrow(() -> new RuntimeException("菜品不存在: " + item.getDishId()));
+                    for (int i = 0; i < dishes.size(); i++) {
+                        Dish dish = dishes.get(i);
+                        int quantity = request.getItems().get(i).getQuantity();
+                        BigDecimal subtotal = dish.getPrice().multiply(BigDecimal.valueOf(quantity));
+                        totalAmount = totalAmount.add(subtotal);
 
-            if (!dish.getIsAvailable()) {
-                throw new RuntimeException("菜品不可用: " + dish.getName());
-            }
+                        items.add(OrderResponse.OrderItemResponse.builder()
+                                .dishId(dish.getId())
+                                .dishName(dish.getName())
+                                .price(dish.getPrice())
+                                .quantity(quantity)
+                                .subtotal(subtotal)
+                                .build());
 
-            BigDecimal subtotal = dish.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-            totalAmount = totalAmount.add(subtotal);
+                        dish.setSalesCount(dish.getSalesCount() + quantity);
+                    }
 
-            items.add(OrderResponse.OrderItemResponse.builder()
-                    .dishId(dish.getId())
-                    .dishName(dish.getName())
-                    .price(dish.getPrice())
-                    .quantity(item.getQuantity())
-                    .subtotal(subtotal)
-                    .build());
+                    String orderNo = generateOrderNo();
 
-            dish.setSalesCount(dish.getSalesCount() + item.getQuantity());
-            dishRepository.save(dish);
-        }
+                    Order order = Order.builder()
+                            .orderNo(orderNo)
+                            .userId(request.getUserId())
+                            .tableNo(request.getTableNo())
+                            .status("PENDING")
+                            .totalAmount(totalAmount)
+                            .items(toJson(items))
+                            .remark(request.getRemark())
+                            .createdAt(LocalDateTime.now())
+                            .build();
 
-        String orderNo = generateOrderNo();
-
-        Order order = Order.builder()
-                .orderNo(orderNo)
-                .userId(request.getUserId())
-                .tableNo(request.getTableNo())
-                .status("PENDING")
-                .totalAmount(totalAmount)
-                .items(toJson(items))
-                .remark(request.getRemark())
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        order = orderRepository.save(order);
-        log.info("订单创建成功, 订单号: {}", orderNo);
-
-        return toResponse(order, items);
+                    return orderRepository.save(order)
+                            .doOnSuccess(savedOrder -> {
+                                Flux.fromIterable(dishes)
+                                        .flatMap(dishRepository::save)
+                                        .subscribe();
+                            })
+                            .map(savedOrder -> toResponse(savedOrder, items));
+                })
+                .doOnSuccess(response -> log.info("订单创建成功, 订单号: {}", response.getOrderNo()));
     }
 
     @Override
-    public OrderResponse getOrderById(Long id) {
+    public Mono<OrderResponse> getOrderById(Long id) {
         log.debug("获取订单 ID: {}", id);
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + id));
-        return toResponse(order, parseItems(order.getItems()));
+        return orderRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("订单不存在: " + id)))
+                .map(order -> toResponse(order, parseItems(order.getItems())));
     }
 
     @Override
-    public OrderResponse getOrderByNo(String orderNo) {
+    public Mono<OrderResponse> getOrderByNo(String orderNo) {
         log.debug("获取订单号: {}", orderNo);
-        Order order = orderRepository.findByOrderNo(orderNo)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + orderNo));
-        return toResponse(order, parseItems(order.getItems()));
+        return orderRepository.findByOrderNo(orderNo)
+                .switchIfEmpty(Mono.error(new RuntimeException("订单不存在: " + orderNo)))
+                .map(order -> toResponse(order, parseItems(order.getItems())));
     }
 
     @Override
-    public List<OrderResponse> getOrdersByUserId(Long userId) {
+    public Flux<OrderResponse> getOrdersByUserId(Long userId) {
         log.debug("获取用户订单, 用户ID: {}", userId);
-        return orderRepository.findByUserId(userId).stream()
-                .map(order -> toResponse(order, parseItems(order.getItems())))
-                .collect(Collectors.toList());
+        return orderRepository.findByUserId(userId)
+                .map(order -> toResponse(order, parseItems(order.getItems())));
     }
 
     @Override
-    public List<OrderResponse> getOrdersByStatus(String status) {
+    public Flux<OrderResponse> getOrdersByStatus(String status) {
         log.debug("获取状态为 {} 的订单", status);
-        return orderRepository.findByStatus(status).stream()
-                .map(order -> toResponse(order, parseItems(order.getItems())))
-                .collect(Collectors.toList());
+        return orderRepository.findByStatus(status)
+                .map(order -> toResponse(order, parseItems(order.getItems())));
     }
 
     @Override
-    @Transactional
-    public OrderResponse updateOrderStatus(Long id, String status) {
+    public Mono<OrderResponse> updateOrderStatus(Long id, String status) {
         log.debug("更新订单状态, 订单ID: {}, 状态: {}", id, status);
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + id));
-
-        order.setStatus(status);
-        order.setUpdatedAt(LocalDateTime.now());
-        order = orderRepository.save(order);
-
-        return toResponse(order, parseItems(order.getItems()));
+        return orderRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("订单不存在: " + id)))
+                .flatMap(order -> {
+                    order.setStatus(status);
+                    order.setUpdatedAt(LocalDateTime.now());
+                    return orderRepository.save(order);
+                })
+                .map(order -> toResponse(order, parseItems(order.getItems())));
     }
 
     @Override
-    @Transactional
-    public void cancelOrder(Long id) {
+    public Mono<Void> cancelOrder(Long id) {
         log.debug("取消订单, 订单ID: {}", id);
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + id));
-
-        if (!"PENDING".equals(order.getStatus())) {
-            throw new RuntimeException("只能取消待支付的订单");
-        }
-
-        order.setStatus("CANCELLED");
-        order.setUpdatedAt(LocalDateTime.now());
-        orderRepository.save(order);
+        return orderRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("订单不存在: " + id)))
+                .filter(order -> "PENDING".equals(order.getStatus()))
+                .switchIfEmpty(Mono.error(new RuntimeException("只能取消待支付的订单")))
+                .flatMap(order -> {
+                    order.setStatus("CANCELLED");
+                    order.setUpdatedAt(LocalDateTime.now());
+                    return orderRepository.save(order).then();
+                });
     }
 
     private String generateOrderNo() {
@@ -150,7 +152,7 @@ public class OrderServiceImpl implements OrderService {
 
     private String toJson(List<OrderResponse.OrderItemResponse> items) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(items);
+            return objectMapper.writeValueAsString(items);
         } catch (Exception e) {
             return "[]";
         }
@@ -162,9 +164,8 @@ public class OrderServiceImpl implements OrderService {
             return new ArrayList<>();
         }
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                    .readValue(json,
-                            new com.fasterxml.jackson.core.type.TypeReference<List<OrderResponse.OrderItemResponse>>() {});
+            return objectMapper.readValue(json,
+                    new TypeReference<List<OrderResponse.OrderItemResponse>>() {});
         } catch (Exception e) {
             return new ArrayList<>();
         }

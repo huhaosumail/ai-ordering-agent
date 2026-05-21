@@ -1,30 +1,27 @@
-
 package com.ximalaya.ai.ordering.service;
 
 import com.ximalaya.ai.ordering.dto.request.DishRequest;
 import com.ximalaya.ai.ordering.dto.response.DishResponse;
-
-import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 public interface DishService {
 
-    List<DishResponse> getAllDishes();
+    Flux<DishResponse> getAvailableDishes();
 
-    List<DishResponse> getAvailableDishes();
+    Mono<DishResponse> getDishById(Long id);
 
-    List<DishResponse> getDishesByCategory(String category);
+    Flux<DishResponse> getDishesByCategory(String category);
 
-    DishResponse getDishById(Long id);
+    Flux<DishResponse> searchDishes(String keyword);
 
-    DishResponse createDish(DishRequest request);
+    Flux<DishResponse> getTopSales();
 
-    DishResponse updateDish(Long id, DishRequest request);
+    Flux<DishResponse> getTopRated();
 
-    void deleteDish(Long id);
+    Mono<DishResponse> createDish(DishRequest request);
 
-    List<DishResponse> searchDishes(String keyword);
+    Mono<DishResponse> updateDish(Long id, DishRequest request);
 
-    List<DishResponse> getTopSales();
-
-    List<DishResponse> getTopRated();
+    Mono<Void> deleteDish(Long id);
 }

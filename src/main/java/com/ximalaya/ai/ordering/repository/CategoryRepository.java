@@ -1,16 +1,14 @@
-
 package com.ximalaya.ai.ordering.repository;
 
 import com.ximalaya.ai.ordering.entity.Category;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
+import reactor.core.publisher.Flux;
 
 @Repository
-public interface CategoryRepository extends JpaRepository<Category, Long> {
+public interface CategoryRepository extends ReactiveCrudRepository<Category, Long> {
 
-    List<Category> findByOrderBySortOrderAsc();
+    Flux<Category> findAllByOrderBySortOrderAsc();
 
-    Category findByName(String name);
+    Flux<Category> findByName(String name);
 }
