@@ -4,7 +4,6 @@ import com.ximalaya.ai.ordering.entity.Category;
 import com.ximalaya.ai.ordering.entity.Dish;
 import com.ximalaya.ai.ordering.repository.CategoryRepository;
 import com.ximalaya.ai.ordering.repository.DishRepository;
-import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
