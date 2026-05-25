@@ -1,6 +1,6 @@
 # AI Ordering Agent - 智能点餐 Agent 系统
 
-基于 Spring Boot WebFlux 和 DeepSeek 大模型构建的智能点餐系统，支持自然语言点餐和智能菜品推荐。
+基于 Spring Boot WebFlux 和 DeepSeek 大模型构建的智能点餐系统，支持自然语言点餐、智能菜品推荐、多轮对话记忆和工具调用能力。
 
 ## 技术栈
 
@@ -29,6 +29,14 @@
 - **自然语言点餐**: 支持"我要一份宫保鸡丁和两份鱼香肉丝"
 - **智能推荐**: 根据用户偏好推荐菜品
 
+### 🧠 Agent智能对话 (新增)
+- **多轮对话记忆**: 基于RAG的对话历史管理
+- **工具调用能力**: 
+  - `query_dishes`: 查询菜品信息
+  - `query_orders`: 查询订单信息  
+  - `query_categories`: 查询分类信息
+- **会话管理**: 支持会话创建、查询、清除
+
 ### 📊 操作日志留痕
 - **全链路自动记录**: 所有 `/api/**` 请求由 `OperationLogWebFilter` 自动写入 `operation_log` 表
 - **链路追踪**: 响应头返回 `X-Trace-Id`，支持按 traceId 查询同一请求相关日志
@@ -50,10 +58,20 @@
 ```yaml
 ai:
   deepseek:
-    api-key: sk-9dd346e5f5a6498998cb932a146959f1
-    base-url: https://api.deepseek.com/v1
-    model: deepseek-chat
+    api-key: ${AI_DEEPSEEK_API_KEY:your-api-key}
+    base-url: ${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
+    model: ${AI_DEEPSEEK_MODEL:deepseek-chat}
+
+agent:
+  ordering:
+    memory:
+      max-history-messages: 10
 ```
+
+**环境变量配置**（推荐生产环境使用）：
+- `AI_DEEPSEEK_API_KEY`: DeepSeek API密钥
+- `AI_DEEPSEEK_BASE_URL`: API基础URL
+- `AI_DEEPSEEK_MODEL`: 使用的模型名称
 
 ### 运行方式
 
@@ -109,6 +127,15 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 | POST | `/api/ai/order` | AI智能点餐 |
 | GET | `/api/ai/recommend` | 获取菜品推荐 |
 
+### Agent智能对话 (新增)
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/agent/chat` | 智能对话（支持工具调用和记忆） |
+| GET | `/api/agent/session/{sessionId}/summary` | 获取会话摘要 |
+| GET | `/api/agent/session/{sessionId}/messages` | 获取会话消息列表 |
+| DELETE | `/api/agent/session/{sessionId}` | 清除会话 |
+
 ### 操作日志
 
 | 方法 | 路径 | 描述 |
@@ -123,6 +150,7 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 | 路径前缀 | 模块标识 |
 |---------|---------|
 | `/api/ai` | AI |
+| `/api/agent` | AGENT |
 | `/api/orders` | ORDER |
 | `/api/dishes` | DISH |
 | `/api/categories` | CATEGORY |
@@ -157,7 +185,37 @@ curl -X POST http://localhost:8080/api/ai/order \
 curl -X GET "http://localhost:8080/api/ai/recommend?preferences=喜欢辣的"
 ```
 
-### 4. 创建订单
+### 4. Agent智能对话（新增）
+
+```bash
+# 查询菜品
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"user-123","message":"有什么好吃的推荐吗？"}'
+
+# 继续对话（上下文记忆）
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"user-123","message":"有辣的菜吗？"}'
+
+# 查询订单
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"user-123","message":"查询我的订单"}'
+```
+
+**响应示例**:
+```json
+{"code":200,"message":"success","data":"当前可用的辣味菜品有：\n- 宫保鸡丁 (中式菜肴) - ¥38.00\n  描述：经典川菜，鸡肉鲜嫩，花生酥脆\n- 鱼香肉丝 (中式菜肴) - ¥32.00\n  描述：酸甜微辣，口感丰富\n- 麻婆豆腐 (中式菜肴) - ¥28.00\n  描述：麻辣鲜香，下饭神器"}
+```
+
+### 5. 获取会话摘要
+
+```bash
+curl http://localhost:8080/api/agent/session/user-123/summary
+```
+
+### 6. 创建订单
 
 ```bash
 curl -X POST http://localhost:8080/api/orders \
@@ -171,13 +229,13 @@ curl -X POST http://localhost:8080/api/orders \
   }'
 ```
 
-### 5. 查询菜品列表
+### 7. 查询菜品列表
 
 ```bash
 curl http://localhost:8080/api/dishes
 ```
 
-### 6. 查询操作日志
+### 8. 查询操作日志
 
 ```bash
 # 分页查询（可按模块、成功状态、关键词筛选）
@@ -219,7 +277,7 @@ curl "http://localhost:8080/api/logs?keyword=宫保鸡丁"
 }
 ```
 
-### 7. 操作日志统计
+### 9. 操作日志统计
 
 ```bash
 curl "http://localhost:8080/api/logs/stats"
@@ -228,7 +286,7 @@ curl "http://localhost:8080/api/logs/stats"
 curl "http://localhost:8080/api/logs/stats?startTime=2026-05-01T00:00:00&endTime=2026-05-25T23:59:59"
 ```
 
-### 8. 按链路 ID 追踪
+### 10. 按链路 ID 追踪
 
 ```bash
 # 从响应头 X-Trace-Id 获取 traceId
@@ -240,20 +298,112 @@ curl "http://localhost:8080/api/logs/trace/{traceId}"
 ```
 ai-ordering-agent/
 ├── src/main/java/com/ximalaya/ai/ordering/
-│   ├── controller/      # REST API 控制层
-│   ├── service/         # 业务逻辑层
-│   ├── repository/      # 数据访问层
-│   ├── entity/          # 数据库实体
-│   ├── dto/             # 数据传输对象
-│   ├── filter/          # WebFilter（操作日志自动留痕）
-│   ├── util/            # 工具类
-│   ├── config/          # 配置类（R2DBC 建表等）
-│   └── Application.java # 启动类
+│   ├── agent/              # Agent核心模块 (新增)
+│   │   ├── AgentService.java
+│   │   ├── impl/
+│   │   │   └── AgentServiceImpl.java
+│   │   ├── tool/           # 工具调用 (新增)
+│   │   │   ├── Tool.java
+│   │   │   ├── DishQueryTool.java
+│   │   │   ├── OrderQueryTool.java
+│   │   │   └── CategoryQueryTool.java
+│   │   └── ToolDefinition.java
+│   ├── controller/         # REST API 控制层
+│   │   ├── AiOrderingController.java
+│   │   ├── AgentController.java  # Agent对话控制器 (新增)
+│   │   ├── CategoryController.java
+│   │   ├── DishController.java
+│   │   ├── OperationLogController.java
+│   │   └── OrderController.java
+│   ├── service/            # 业务逻辑层
+│   │   ├── ChatMemoryService.java      # RAG记忆服务 (新增)
+│   │   ├── AiOrderingService.java
+│   │   ├── DishService.java
+│   │   ├── OperationLogService.java
+│   │   ├── OrderService.java
+│   │   └── impl/
+│   │       ├── ChatMemoryServiceImpl.java  # RAG记忆实现 (新增)
+│   │       ├── AiOrderingServiceImpl.java
+│   │       ├── DishServiceImpl.java
+│   │       ├── OperationLogServiceImpl.java
+│   │       └── OrderServiceImpl.java
+│   ├── repository/         # 数据访问层
+│   │   ├── ChatHistoryRepository.java  # 对话历史 (新增)
+│   │   ├── CategoryRepository.java
+│   │   ├── DishRepository.java
+│   │   ├── OperationLogRepository.java
+│   │   └── OrderRepository.java
+│   ├── entity/             # 数据库实体
+│   │   ├── ChatHistory.java  # 对话历史实体 (新增)
+│   │   ├── Category.java
+│   │   ├── Dish.java
+│   │   ├── OperationLog.java
+│   │   └── Order.java
+│   ├── dto/                # 数据传输对象
+│   ├── filter/             # WebFilter（操作日志自动留痕）
+│   ├── util/               # 工具类
+│   ├── config/             # 配置类
+│   │   ├── AiConfig.java   # AI配置 (新增)
+│   │   └── R2dbcConfig.java
+│   └── Application.java    # 启动类
 ├── src/main/resources/
-│   ├── application.yml  # 配置文件
-│   └── schema.sql       # 数据库表结构（含 operation_log）
-└── pom.xml              # Maven配置
+│   ├── application.yml     # 配置文件
+│   └── schema.sql          # 数据库表结构
+└── pom.xml                 # Maven配置
 ```
+
+## Agent架构说明 (新增)
+
+### 核心组件
+
+1. **AgentService**: 主入口，负责接收用户消息并返回响应
+2. **ChatMemoryService**: RAG记忆模块，管理对话历史
+3. **Tool**: 工具接口，定义可调用的工具能力
+4. **DishQueryTool**: 菜品查询工具
+5. **OrderQueryTool**: 订单查询工具
+6. **CategoryQueryTool**: 分类查询工具
+
+### 工作流程
+
+```
+用户消息 → AgentService → 检查是否需要调用工具
+                          ↓
+                     LLM分析意图
+                          ↓
+              ┌───────────┴───────────┐
+              ↓                       ↓
+         需要调用工具           直接回答用户
+              ↓                       ↓
+     执行工具调用              返回自然语言响应
+              ↓
+     获取工具结果
+              ↓
+     LLM总结结果
+              ↓
+     返回自然语言响应
+```
+
+### 工具调用格式
+
+Agent支持以下工具调用格式：
+```
+<function name="工具名" params="参数JSON">
+```
+
+**可用工具**:
+- `query_dishes`: 查询菜品
+  - 参数: `keyword` (可选), `category` (可选)
+- `query_orders`: 查询订单
+  - 参数: `orderNo` (可选), `userId` (可选), `status` (可选)
+- `query_categories`: 查询分类
+  - 参数: 无
+
+### RAG记忆机制
+
+- 对话历史存储在 `chat_history` 表中
+- 支持按sessionId管理多个会话
+- 默认保留最近10条消息作为上下文
+- 支持会话清除和摘要生成
 
 ## 响应式架构说明
 

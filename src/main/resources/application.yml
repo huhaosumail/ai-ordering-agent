@@ -23,6 +23,12 @@ logging:
     com.ximalaya.ai.ordering: DEBUG
     org.springframework.r2dbc: DEBUG
 
+ai:
+  deepseek:
+    api-key: ${AI_DEEPSEEK_API_KEY:sk-9dd346e5f5a6498998cb932a146959f1}
+    base-url: ${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
+    model: ${AI_DEEPSEEK_MODEL:deepseek-chat}
+
 agent:
   ordering:
     prompt:
@@ -36,9 +42,5 @@ agent:
         
         示例2: "来个招牌菜"
         输出: {"items":[],"suggestion":"请问您想选择哪个招牌菜呢？"}
-
-ai:
-  deepseek:
-    api-key: sk-9dd346e5f5a6498998cb932a146959f1
-    base-url: https://api.deepseek.com/v1
-    model: deepseek-chat
+    memory:
+      max-history-messages: 10
