@@ -44,3 +44,7 @@ Thumbs.db
 
 # Database
 *.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

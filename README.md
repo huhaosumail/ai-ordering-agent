@@ -89,6 +89,36 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 
 服务启动后访问: http://localhost:8080
 
+### 前端聊天界面 (React)
+
+项目提供 React 前端，对接 `/api/agent/chat` 实现多轮对话。
+
+**开发模式**（需先启动后端）:
+
+```bash
+# 终端 1：启动后端
+mvn spring-boot:run
+
+# 终端 2：启动前端（Vite 代理 /api → localhost:8080）
+cd frontend
+npm install
+npm run dev
+```
+
+浏览器访问: http://localhost:5173
+
+**Docker 一键部署前后端**:
+
+```bash
+# 设置 DeepSeek API Key（必填）
+export AI_DEEPSEEK_API_KEY=your-api-key
+
+docker compose up --build -d
+```
+
+- 前端: http://localhost:3000（Nginx 反向代理 API 到后端）
+- 后端 API: http://localhost:8080
+
 ### H2控制台
 
 访问 H2 数据库控制台: http://localhost:8080/h2-console
@@ -297,6 +327,13 @@ curl "http://localhost:8080/api/logs/trace/{traceId}"
 
 ```
 ai-ordering-agent/
+├── frontend/               # React 聊天前端 (Vite)
+│   ├── src/
+│   │   ├── api/agent.ts    # Agent API 客户端
+│   │   └── components/     # 聊天 UI 组件
+│   ├── Dockerfile
+│   └── nginx.conf
+├── docker-compose.yml      # 前后端一键部署
 ├── src/main/java/com/ximalaya/ai/ordering/
 │   ├── agent/              # Agent核心模块 (新增)
 │   │   ├── AgentService.java
