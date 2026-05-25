@@ -8,6 +8,11 @@ services:
       - AI_DEEPSEEK_API_KEY=${AI_DEEPSEEK_API_KEY:-}
       - AI_DEEPSEEK_BASE_URL=${AI_DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       - AI_DEEPSEEK_MODEL=${AI_DEEPSEEK_MODEL:-deepseek-chat}
+      - FEISHU_ENABLED=${FEISHU_ENABLED:-false}
+      - FEISHU_APP_ID=${FEISHU_APP_ID:-}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+      - FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN:-}
+      - FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/dishes"]
       interval: 10s

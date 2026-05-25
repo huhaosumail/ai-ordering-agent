@@ -1,6 +1,6 @@
 # AI Ordering Agent - 智能点餐 Agent 系统
 
-基于 **Spring Boot WebFlux**、**DeepSeek 大模型** 和 **React 聊天前端** 构建的智能点餐系统。支持自然语言查菜、推荐、下单，多轮对话记忆，Agent 工具调用，以及全链路操作日志留痕。
+基于 **Spring Boot WebFlux**、**DeepSeek 大模型** 和 **React 聊天前端** 构建的智能点餐系统。支持自然语言查菜、推荐、下单，多轮对话记忆，Agent 工具调用，**飞书机器人**（可选）接入，以及全链路操作日志留痕。
 
 ## 项目概览
 
@@ -9,6 +9,7 @@
 | **后端** | Java 21 + WebFlux + R2DBC + H2，端口 `8080` |
 | **前端** | React + Vite 小助手，端口 `5173`，开发时代理 `/api` → 后端 |
 | **大模型** | DeepSeek Chat API（Agent 与 `/api/ai/*` 共用） |
+| **飞书** | 事件订阅 Webhook + Open API 回复（`feishu.enabled=true` 时启用） |
 | **数据** | 启动时自动加载 3 类分类、8 道示例菜品 |
 
 ### 典型使用场景
@@ -16,12 +17,14 @@
 1. 打开浏览器小助手 → 问「有什么辣的菜推荐？」→ Agent 查库并总结  
 2. 继续说「麻婆豆腐 三份」或「两份麻婆豆腐」→ Agent 调用 `create_order` 创建订单  
 3. 通过 `/api/logs` 按 `traceId` 追踪请求与 AI 调用  
+4. 在飞书私聊/群聊 @ 机器人 → 同样走 Agent 查菜、推荐、下单（会话按 `chat_id` 隔离）  
 
 ## 技术栈
 
 - **框架**: Spring Boot 3.2.5 + Spring WebFlux（响应式）
 - **数据库**: H2 内存库 + R2DBC
 - **大模型**: DeepSeek Chat API（OkHttp）
+- **飞书**: 开放平台事件订阅 + `tenant_access_token` + 消息回复 API（OkHttp）
 - **前端**: React 19 + Vite 8 + TypeScript
 - **语言**: Java 21
 
@@ -53,6 +56,35 @@
 
 - **会话 API**: 聊天、消息列表、摘要、清除会话  
 - **兜底机制**: API 失败或模型未返回工具调用时，本地解析下单意图（如「麻婆豆腐 三份」「三份麻婆豆腐」）并执行 `create_order`  
+
+### 飞书机器人（`/api/feishu`，可选）
+
+默认关闭（`feishu.enabled=false`），开启后注册 `FeishuController` / `FeishuEventService` / `FeishuClient`。
+
+| 能力 | 说明 |
+|------|------|
+| **事件回调** | `POST /api/feishu/webhook`，处理飞书事件订阅 |
+| **URL 校验** | 配置订阅地址时自动响应 `challenge`（支持明文与加密响应） |
+| **接收消息** | 订阅 `im.message.receive_v1`，支持 Schema 1.0 / 2.0 |
+| **Agent 对话** | 文本消息复用 `AgentService.chat()`，与 Web 小助手相同的查菜/推荐/下单工具链 |
+| **多轮记忆** | 会话 ID：`feishu:{chat_id}`，写入 `chat_history`，与 Web 端 `sessionId` 隔离 |
+| **消息回复** | 调用 `im/v1/messages/{message_id}/reply` 回复用户原消息 |
+| **异步处理** | 先快速返回 HTTP 200，再在后台调用 Agent 并回复（满足飞书 3 秒超时） |
+| **安全校验** | 可选 `verification-token`；可选 `encrypt-key` AES 加解密（与控制台 Encrypt Key 一致） |
+| **去重** | Schema 2.0 按 `event_id` 内存去重，避免重复投递 |
+| **过滤** | 忽略机器人自身消息（`sender_type=app`）、非文本消息 |
+| **快捷指令** | `/help`、`/帮助` 使用说明；`/clear`、`/重置` 清除当前会话记忆 |
+
+**配置项**（`application.yml` / 环境变量）：
+
+| 配置 | 环境变量 | 说明 |
+|------|----------|------|
+| `feishu.enabled` | `FEISHU_ENABLED` | 是否启用，默认 `false` |
+| `feishu.app-id` | `FEISHU_APP_ID` | 应用 App ID |
+| `feishu.app-secret` | `FEISHU_APP_SECRET` | 应用 App Secret |
+| `feishu.verification-token` | `FEISHU_VERIFICATION_TOKEN` | 事件订阅 Verification Token（建议配置） |
+| `feishu.encrypt-key` | `FEISHU_ENCRYPT_KEY` | 事件加密密钥（控制台开启加密时必填） |
+| `feishu.base-url` | `FEISHU_BASE_URL` | API 根地址，默认 `https://open.feishu.cn` |
 
 ### 操作日志留痕
 
@@ -93,7 +125,40 @@ agent:
     simulation-mode: ${AGENT_SIMULATION_MODE:false}
     memory:
       max-history-messages: 10
+
+# 飞书机器人（默认关闭）
+feishu:
+  enabled: ${FEISHU_ENABLED:false}
+  app-id: ${FEISHU_APP_ID:}
+  app-secret: ${FEISHU_APP_SECRET:}
+  verification-token: ${FEISHU_VERIFICATION_TOKEN:}
+  encrypt-key: ${FEISHU_ENCRYPT_KEY:}
+  base-url: ${FEISHU_BASE_URL:https://open.feishu.cn}
 ```
+
+### 配置飞书机器人
+
+1. 打开 [飞书开放平台](https://open.feishu.cn/app) 创建**企业自建应用**  
+2. **凭证与基础信息**：复制 App ID、App Secret  
+3. **权限管理**：开通并发布版本，至少包含：  
+   - 获取与发送单聊、群组消息（`im:message`）  
+   - 以应用身份发消息（`im:message:send_as_bot`）  
+4. **事件订阅**（需公网 **HTTPS**，本地开发可用 [ngrok](https://ngrok.com/) 等隧道）：  
+   - 请求地址：`https://你的域名/api/feishu/webhook`  
+   - 添加事件：`im.message.receive_v1`  
+   - 填写 **Verification Token**、**Encrypt Key**（与下方环境变量一致；未开启加密可不填 `encrypt-key`）  
+5. **机器人**：在应用能力中启用机器人，将机器人拉入目标群或发起私聊  
+
+```bash
+export FEISHU_ENABLED=true
+export FEISHU_APP_ID=cli_xxxx
+export FEISHU_APP_SECRET=xxxx
+export FEISHU_VERIFICATION_TOKEN=xxxx      # 建议配置，与控制台一致
+export FEISHU_ENCRYPT_KEY=xxxx             # 控制台开启「加密」时必填
+# export FEISHU_BASE_URL=https://open.feishu.cn  # 可选，国际版可改为 Lark 域名
+```
+
+启动后端后，在飞书私聊或群里 @ 机器人发送「有什么辣的菜推荐？」或「麻婆豆腐 三份」即可对话、下单。
 
 ### 启动前后端（开发）
 
@@ -116,6 +181,12 @@ npm run dev
 
 ```bash
 export AI_DEEPSEEK_API_KEY=your-api-key
+# 可选：飞书
+export FEISHU_ENABLED=true
+export FEISHU_APP_ID=cli_xxxx
+export FEISHU_APP_SECRET=xxxx
+export FEISHU_VERIFICATION_TOKEN=xxxx
+export FEISHU_ENCRYPT_KEY=xxxx
 docker compose up --build -d
 ```
 
@@ -149,6 +220,14 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 | GET | `/api/agent/session/{id}/messages` | 会话消息列表 |
 | GET | `/api/agent/session/{id}/summary` | 会话摘要 |
 | DELETE | `/api/agent/session/{id}` | 清除会话 |
+
+### 飞书（需 `feishu.enabled=true`）
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/feishu/webhook` | 飞书事件订阅回调（URL 校验、收消息、加密体解密） |
+
+飞书侧无额外 REST；用户通过 IM 发消息，服务端异步回复。清除飞书会话可在 IM 中发送 `/clear` 或 `/重置`。
 
 ### 菜品 / 订单 / AI / 日志
 
@@ -199,6 +278,20 @@ curl "http://localhost:8080/api/logs?module=AGENT&page=0&size=20"
 curl "http://localhost:8080/api/logs/trace/{traceId}"
 ```
 
+### 飞书：本地调试 Webhook（URL 校验）
+
+将 `challenge` 替换为飞书控制台推送的值：
+
+```bash
+curl -X POST http://localhost:8080/api/feishu/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"challenge":"test-challenge-token","token":"你的VERIFICATION_TOKEN","type":"url_verification"}'
+```
+
+期望响应：`{"challenge":"test-challenge-token"}`（若开启加密则为 `{"encrypt":"..."}`）。
+
+飞书真实消息由开放平台 POST 到同一地址，无需手动 curl；需保证 `FEISHU_ENABLED=true` 且回调 URL 公网可达。
+
 ## 项目结构
 
 ```
@@ -217,10 +310,17 @@ ai-ordering-agent/
 │   │       ├── OrderQueryTool.java
 │   │       ├── CategoryQueryTool.java
 │   │       └── CreateOrderTool.java     # 下单工具
-│   ├── controller/              # REST（含 AgentController）
+│   ├── controller/
+│   │   ├── AgentController.java
+│   │   └── FeishuController.java        # POST /api/feishu/webhook
+│   ├── feishu/
+│   │   ├── FeishuEventService.java      # 事件解析、Agent 编排、快捷指令
+│   │   ├── FeishuClient.java            # token 缓存、消息回复
+│   │   └── FeishuCrypto.java            # 事件加解密
 │   ├── service/                 # 业务 + ChatMemory + AiOrdering
 │   ├── config/
 │   │   ├── DataInitializer.java # 示例数据（须在 java 目录下）
+│   │   ├── FeishuProperties.java  # feishu.* 配置
 │   │   └── R2dbcConfig.java
 │   ├── filter/OperationLogWebFilter.java
 │   └── ...
@@ -258,6 +358,28 @@ ai-ordering-agent/
 <function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}],"userId":1}'>
 ```
 
+## 飞书接入架构
+
+```
+飞书用户发文本 → 开放平台 POST /api/feishu/webhook
+        ↓
+FeishuController → FeishuEventService
+        ↓
+  解密/校验 token → 识别 im.message.receive_v1
+        ↓
+  立即返回 200（challenge 或 {}）
+        ↓
+  异步：sessionId = feishu:{chat_id}
+        ↓
+  AgentService.chat()（同 Web 小助手）
+        ↓
+  FeishuClient.replyText(message_id) → 飞书会话展示回复
+        ↓
+  写入 chat_history
+```
+
+与 Web 小助手共用 **Agent 工具链**（`query_dishes` / `create_order` 等）和 **DeepSeek** 配置；仅入口与会话 ID 前缀不同。
+
 ## 测试数据
 
 启动后 `DataInitializer` 自动写入：
@@ -275,6 +397,11 @@ ai-ordering-agent/
 | 查不到任何菜 | 示例数据未加载 | 确认 `DataInitializer` 在 `src/main/java/.../config/` |
 | 说了份数却不下单 | 旧版仅支持「三份麻婆豆腐」 | 已支持「麻婆豆腐 三份」及兜底下单 |
 | 前端 API 失败 | 后端未启动 | 先 `mvn spring-boot:run`，再 `npm run dev` |
+| 飞书 URL 校验失败 | 未启用或 Token 不一致 | 设置 `FEISHU_ENABLED=true`，核对 `FEISHU_VERIFICATION_TOKEN` |
+| 飞书收消息无回复 | 权限未发布、未 @ 机器人、DeepSeek 失败 | 检查应用权限与版本发布；看日志 `飞书回复消息失败` / DeepSeek 402 |
+| 飞书提示加密错误 | 控制台开启加密但未配 Key | 设置 `FEISHU_ENCRYPT_KEY` 与控制台 Encrypt Key 一致 |
+| 飞书回调 404 | 未启用飞书模块 | `feishu.enabled` 必须为 `true` 并重启 |
+| 本地无法收飞书事件 | 飞书要求公网 HTTPS | 使用 ngrok：`ngrok http 8080`，将 HTTPS 地址配到事件订阅 |
 
 ## 相关文档
 
