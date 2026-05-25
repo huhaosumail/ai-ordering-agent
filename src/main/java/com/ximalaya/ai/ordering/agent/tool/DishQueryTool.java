@@ -43,8 +43,9 @@ public class DishQueryTool implements Tool {
         return dishRepository.findByIsAvailableTrue()
                 .filter(dish -> {
                     if (keyword != null && !keyword.isEmpty()) {
-                        return dish.getName().contains(keyword) || 
-                               dish.getDescription().contains(keyword);
+                        String desc = dish.getDescription();
+                        return dish.getName().contains(keyword)
+                                || (desc != null && desc.contains(keyword));
                     }
                     return true;
                 })

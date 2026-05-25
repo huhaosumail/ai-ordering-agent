@@ -2,6 +2,7 @@ package com.ximalaya.ai.ordering.agent.impl;
 
 import com.ximalaya.ai.ordering.agent.AgentService;
 import com.ximalaya.ai.ordering.agent.tool.CategoryQueryTool;
+import com.ximalaya.ai.ordering.agent.tool.CreateOrderTool;
 import com.ximalaya.ai.ordering.agent.tool.DishQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.OrderQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.Tool;
@@ -36,6 +37,7 @@ public class AgentServiceImpl implements AgentService {
     private final String model;
 
     private final List<Tool> tools;
+    private final boolean simulationMode;
     private static final int MAX_HISTORY_MESSAGES = 10;
 
     private static final String SYSTEM_PROMPT = """
@@ -47,6 +49,8 @@ public class AgentServiceImpl implements AgentService {
             2. query_orders - 查询订单信息
                参数：orderNo(可选) - 订单号；userId(可选) - 用户ID；status(可选) - 订单状态
             3. query_categories - 查询所有分类
+            4. create_order - 创建订单（用户明确要点菜、下单时使用）
+               参数：items(必填) - [{\"name\":\"菜品名\",\"quantity\":数量}]；userId(可选)；tableNo(可选)；remark(可选)
             
             工具调用格式：<function name="工具名" params="参数JSON">
             
@@ -62,20 +66,23 @@ public class AgentServiceImpl implements AgentService {
                            DishQueryTool dishQueryTool,
                            OrderQueryTool orderQueryTool,
                            CategoryQueryTool categoryQueryTool,
+                           CreateOrderTool createOrderTool,
                            @Value("${ai.deepseek.api-key}") String apiKey,
                            @Value("${ai.deepseek.base-url}") String baseUrl,
-                           @Value("${ai.deepseek.model}") String model) {
+                           @Value("${ai.deepseek.model}") String model,
+                           @Value("${agent.ordering.simulation-mode:false}") boolean simulationMode) {
         this.chatMemoryService = chatMemoryService;
         this.operationLogService = operationLogService;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.model = model;
+        this.simulationMode = simulationMode;
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(java.time.Duration.ofSeconds(30))
                 .readTimeout(java.time.Duration.ofSeconds(60))
                 .writeTimeout(java.time.Duration.ofSeconds(30))
                 .build();
-        this.tools = Arrays.asList(dishQueryTool, orderQueryTool, categoryQueryTool);
+        this.tools = Arrays.asList(dishQueryTool, orderQueryTool, categoryQueryTool, createOrderTool);
     }
 
     @Override
@@ -86,8 +93,8 @@ public class AgentServiceImpl implements AgentService {
                 .then(chatMemoryService.getMessagesForLlm(sessionId, MAX_HISTORY_MESSAGES))
                 .flatMap(messages -> {
                     String prompt = buildPrompt(messages, userInput);
-                    return Mono.fromCallable(() -> callDeepSeekWithTools(prompt))
-                            .flatMap(response -> processResponse(sessionId, response));
+                    return Mono.fromCallable(() -> callDeepSeekWithTools(prompt, userId))
+                            .flatMap(response -> processResponse(sessionId, response, userId));
                 });
     }
 
@@ -106,7 +113,12 @@ public class AgentServiceImpl implements AgentService {
         return prompt.toString();
     }
 
-    private String callDeepSeekWithTools(String prompt) {
+    private String callDeepSeekWithTools(String prompt, Long userId) {
+        if (simulationMode) {
+            log.debug("Agent 使用本地模拟模式");
+            return simulateLlmResponse(prompt, userId);
+        }
+        
         long start = System.currentTimeMillis();
         try {
             Map<String, Object> requestBody = new HashMap<>();
@@ -138,7 +150,7 @@ public class AgentServiceImpl implements AgentService {
                 if (!response.isSuccessful()) {
                     log.error("DeepSeek API调用失败: {}", response.code());
                     recordAiCall(prompt, false, "HTTP " + response.code(), System.currentTimeMillis() - start, null);
-                    return "{\"error\":\"系统繁忙\"}";
+                    return simulateLlmResponse(prompt, userId);
                 }
 
                 String responseBody = response.body() != null ? response.body().string() : "";
@@ -149,11 +161,151 @@ public class AgentServiceImpl implements AgentService {
         } catch (Exception e) {
             log.error("DeepSeek API调用异常: {}", e.getMessage());
             recordAiCall(prompt, false, e.getMessage(), System.currentTimeMillis() - start, null);
-            return "{\"error\":\"系统繁忙\"}";
+            return simulateLlmResponse(prompt, userId);
         }
     }
 
-    private Mono<String> processResponse(String sessionId, String response) {
+    private String simulateLlmResponse(String prompt, Long userId) {
+        log.info("使用模拟模式响应");
+
+        if (prompt.contains("【工具执行结果】")) {
+            return summarizeToolResults(prompt);
+        }
+
+        String userMsg = extractLatestUserMessage(prompt);
+
+        // 下单意图优先（避免对话历史里的「麻辣」误触发查菜）
+        Optional<Map<String, Object>> orderParams = tryParseOrderIntent(userMsg, userId);
+        if (orderParams.isPresent()) {
+            return toolCall("create_order", orderParams.get());
+        }
+
+        if (userMsg.contains("辣") || userMsg.contains("麻辣")) {
+            return toolCall("query_dishes", Map.of("keyword", "辣"));
+        }
+        if (userMsg.contains("宫保鸡丁") || userMsg.contains("鸡丁")) {
+            return toolCall("query_dishes", Map.of("keyword", "宫保鸡丁"));
+        }
+        if (userMsg.contains("订单") || userMsg.contains("订了") || userMsg.contains("购买")) {
+            return toolCall("query_orders", Map.of());
+        }
+        if (userMsg.contains("分类") || userMsg.contains("种类")) {
+            return toolCall("query_categories", Map.of());
+        }
+        if (containsDishQueryIntent(userMsg)) {
+            return toolCall("query_dishes", Map.of());
+        }
+        return "你好！我是智能点餐小助手，请问需要帮您查询菜品、下单，还是有其他问题？";
+    }
+
+    private String extractLatestUserMessage(String prompt) {
+        int marker = prompt.indexOf("用户最新提问：");
+        if (marker < 0) {
+            return prompt;
+        }
+        String part = prompt.substring(marker + "用户最新提问：".length());
+        int nextLine = part.indexOf('\n');
+        return (nextLine >= 0 ? part.substring(0, nextLine) : part).trim();
+    }
+
+    private boolean containsDishQueryIntent(String userMsg) {
+        return userMsg.contains("菜单") || userMsg.contains("好吃") || userMsg.contains("推荐")
+                || userMsg.contains("有什么") || userMsg.contains("有哪些");
+    }
+
+    private Optional<Map<String, Object>> tryParseOrderIntent(String userMsg, Long userId) {
+        if (!userMsg.contains("份") && !userMsg.contains("我要") && !userMsg.contains("下单")
+                && !userMsg.contains("来一") && !userMsg.contains("点")) {
+            return Optional.empty();
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "([一二两三四五六七八九十\\d]+)份\\s*([^，,。！!？?\\s谢谢]+)");
+        java.util.regex.Matcher matcher = pattern.matcher(userMsg);
+        while (matcher.find()) {
+            int qty = parseQuantity(matcher.group(1));
+            String dishName = matcher.group(2).trim();
+            if (!dishName.isEmpty()) {
+                items.add(Map.of("name", dishName, "quantity", qty));
+            }
+        }
+
+        if (items.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("items", items);
+        params.put("userId", userId != null ? userId : 1L);
+        return Optional.of(params);
+    }
+
+    private int parseQuantity(String raw) {
+        if (raw.matches("\\d+")) {
+            return Integer.parseInt(raw);
+        }
+        return switch (raw) {
+            case "一" -> 1;
+            case "二", "两" -> 2;
+            case "三" -> 3;
+            case "四" -> 4;
+            case "五" -> 5;
+            case "六" -> 6;
+            case "七" -> 7;
+            case "八" -> 8;
+            case "九" -> 9;
+            case "十" -> 10;
+            default -> 1;
+        };
+    }
+
+    private String toolCall(String name, Map<String, Object> params) {
+        try {
+            String paramsJson = objectMapper.writeValueAsString(params);
+            // 使用单引号包裹 JSON，避免 params 内的双引号截断正则匹配
+            return "<function name=\"" + name + "\" params='" + paramsJson + "'>";
+        } catch (Exception e) {
+            log.warn("构造工具调用失败: {}", e.getMessage());
+            return "<function name=\"" + name + "\" params='{}'>";
+        }
+    }
+
+    private String summarizeToolResults(String prompt) {
+        int start = prompt.indexOf("【工具执行结果】");
+        if (start < 0) {
+            return "处理完成，如需帮助请继续告诉我。";
+        }
+        String results = prompt.substring(start);
+        int instructionAt = results.indexOf("\n\n请根据");
+        if (instructionAt > 0) {
+            results = results.substring(0, instructionAt).trim();
+        }
+
+        if (results.contains("订单创建成功")) {
+            int orderStart = results.indexOf("订单创建成功");
+            String orderInfo = results.substring(orderStart).trim();
+            return "好的，已为您下单！\n\n" + orderInfo;
+        }
+        if (results.contains("下单失败")) {
+            int failStart = results.indexOf("下单失败");
+            return results.substring(failStart).trim();
+        }
+        if (results.contains("未找到符合条件的菜品")) {
+            return "抱歉，暂时没有符合您要求的菜品。您可以换个口味或告诉我具体菜名，我再帮您查。";
+        }
+        int bodyStart = results.indexOf("找到 ");
+        if (bodyStart < 0) {
+            return "处理完成，如需帮助请继续告诉我。";
+        }
+        String dishList = results.substring(bodyStart).trim();
+        if (dishList.contains("道菜品")) {
+            return "根据您的需求，为您推荐以下菜品：\n\n" + dishList + "\n\n如需下单，请说「我要X份菜名」。";
+        }
+        return "查询结果如下：\n\n" + dishList;
+    }
+
+    private Mono<String> processResponse(String sessionId, String response, Long userId) {
         log.debug("LLM响应: {}", response);
         
         List<ToolCall> toolCalls = parseToolCalls(response);
@@ -174,17 +326,25 @@ public class AgentServiceImpl implements AgentService {
                     chatMemoryService.addToolMessage(sessionId, toolCalls.get(0).name, toolResultSummary.toString()).subscribe();
                     
                     String summaryPrompt = SYSTEM_PROMPT + "\n\n" +
-                            "工具执行结果：\n" + toolResultSummary + "\n\n" +
-                            "请根据工具执行结果，用自然、友好的语言总结给用户。";
+                            "【工具执行结果】\n" + toolResultSummary + "\n\n" +
+                            "请根据以上结果，用自然、友好的语言总结给用户，不要再调用工具。";
                     
-                    return Mono.fromCallable(() -> callDeepSeekWithTools(summaryPrompt))
-                            .doOnNext(summary -> chatMemoryService.addAssistantMessage(sessionId, summary).subscribe());
+                    return Mono.fromCallable(() -> callDeepSeekWithTools(summaryPrompt, userId))
+                            .flatMap(summary -> {
+                                List<ToolCall> nested = parseToolCalls(summary);
+                                if (nested.isEmpty()) {
+                                    return chatMemoryService.addAssistantMessage(sessionId, summary)
+                                            .thenReturn(summary);
+                                }
+                                log.warn("总结阶段仍返回工具调用，降级为工具结果直出");
+                                return Mono.just(toolResultSummary.toString());
+                            });
                 });
     }
 
     private List<ToolCall> parseToolCalls(String response) {
         List<ToolCall> toolCalls = new ArrayList<>();
-        String pattern = "<function name=\"(.*?)\" params=\"(.*?)\">";
+        String pattern = "<function name=\"(.*?)\" params=['\"](.*?)['\"]>";
         
         java.util.regex.Pattern r = java.util.regex.Pattern.compile(pattern);
         java.util.regex.Matcher m = r.matcher(response);

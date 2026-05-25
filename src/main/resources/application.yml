@@ -31,6 +31,8 @@ ai:
 
 agent:
   ordering:
+    # false（默认）调用 DeepSeek；true 使用本地关键词模拟
+    simulation-mode: ${AGENT_SIMULATION_MODE:false}
     prompt:
       system: |
         你是一个智能点餐助手，帮助用户进行点餐。
