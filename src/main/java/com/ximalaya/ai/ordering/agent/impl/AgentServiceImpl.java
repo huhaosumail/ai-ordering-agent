@@ -51,8 +51,11 @@ public class AgentServiceImpl implements AgentService {
             3. query_categories - 查询所有分类
             4. create_order - 创建订单（用户明确要点菜、下单时使用）
                参数：items(必填) - [{\"name\":\"菜品名\",\"quantity\":数量}]；userId(可选)；tableNo(可选)；remark(可选)
+               示例：用户说「麻婆豆腐三份」「两份宫保鸡丁」时必须调用 create_order，不要只回复问候语。
             
             工具调用格式：<function name="工具名" params="参数JSON">
+            
+            例如：<function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}]}'>
             
             例如：<function name="query_dishes" params="{\"keyword\":\"鸡丁\"}">
             
@@ -94,7 +97,7 @@ public class AgentServiceImpl implements AgentService {
                 .flatMap(messages -> {
                     String prompt = buildPrompt(messages, userInput);
                     return Mono.fromCallable(() -> callDeepSeekWithTools(prompt, userId))
-                            .flatMap(response -> processResponse(sessionId, response, userId));
+                            .flatMap(response -> processResponse(sessionId, response, userId, userInput));
                 });
     }
 
@@ -215,22 +218,11 @@ public class AgentServiceImpl implements AgentService {
 
     private Optional<Map<String, Object>> tryParseOrderIntent(String userMsg, Long userId) {
         if (!userMsg.contains("份") && !userMsg.contains("我要") && !userMsg.contains("下单")
-                && !userMsg.contains("来一") && !userMsg.contains("点")) {
+                && !userMsg.contains("来一") && !userMsg.contains("点") && !userMsg.contains("来")) {
             return Optional.empty();
         }
 
-        List<Map<String, Object>> items = new ArrayList<>();
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                "([一二两三四五六七八九十\\d]+)份\\s*([^，,。！!？?\\s谢谢]+)");
-        java.util.regex.Matcher matcher = pattern.matcher(userMsg);
-        while (matcher.find()) {
-            int qty = parseQuantity(matcher.group(1));
-            String dishName = matcher.group(2).trim();
-            if (!dishName.isEmpty()) {
-                items.add(Map.of("name", dishName, "quantity", qty));
-            }
-        }
-
+        List<Map<String, Object>> items = parseOrderItems(userMsg);
         if (items.isEmpty()) {
             return Optional.empty();
         }
@@ -239,6 +231,53 @@ public class AgentServiceImpl implements AgentService {
         params.put("items", items);
         params.put("userId", userId != null ? userId : 1L);
         return Optional.of(params);
+    }
+
+    /** 支持「三份麻婆豆腐」与「麻婆豆腐 三份」等说法 */
+    private List<Map<String, Object>> parseOrderItems(String userMsg) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        String qty = "[一二两三四五六七八九十\\d]+";
+
+        // 三份麻婆豆腐 / 2份 宫保鸡丁
+        java.util.regex.Pattern qtyFirst = java.util.regex.Pattern.compile(
+                "(" + qty + ")份\\s*([^，,。！!？?\\s谢谢]+)");
+        java.util.regex.Matcher m1 = qtyFirst.matcher(userMsg);
+        while (m1.find()) {
+            addOrderItem(items, m1.group(2), m1.group(1));
+        }
+
+        // 麻婆豆腐三份 / 麻婆豆腐 三份
+        java.util.regex.Pattern nameFirst = java.util.regex.Pattern.compile(
+                "([\\u4e00-\\u9fa5A-Za-z0-9]{2,}?)\\s*(" + qty + ")份");
+        java.util.regex.Matcher m2 = nameFirst.matcher(userMsg);
+        while (m2.find()) {
+            addOrderItem(items, m2.group(1), m2.group(2));
+        }
+
+        return items;
+    }
+
+    private void addOrderItem(List<Map<String, Object>> items, String rawName, String rawQty) {
+        String dishName = normalizeDishName(rawName);
+        if (dishName.isEmpty()) {
+            return;
+        }
+        int qty = parseQuantity(rawQty);
+        boolean duplicate = items.stream()
+                .anyMatch(i -> dishName.equals(String.valueOf(i.get("name"))));
+        if (!duplicate) {
+            items.add(Map.of("name", dishName, "quantity", qty));
+        }
+    }
+
+    private String normalizeDishName(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String name = raw.trim()
+                .replaceAll("^(我要|来|点|订|给我|帮我|想要|需要)", "")
+                .trim();
+        return name.length() >= 2 ? name : "";
     }
 
     private int parseQuantity(String raw) {
@@ -305,12 +344,17 @@ public class AgentServiceImpl implements AgentService {
         return "查询结果如下：\n\n" + dishList;
     }
 
-    private Mono<String> processResponse(String sessionId, String response, Long userId) {
+    private Mono<String> processResponse(String sessionId, String response, Long userId, String userInput) {
         log.debug("LLM响应: {}", response);
         
         List<ToolCall> toolCalls = parseToolCalls(response);
         
         if (toolCalls.isEmpty()) {
+            Optional<Map<String, Object>> orderParams = tryParseOrderIntent(userInput, userId);
+            if (orderParams.isPresent()) {
+                log.info("LLM 未返回工具调用，根据用户输入兜底下单: {}", userInput);
+                return processResponse(sessionId, toolCall("create_order", orderParams.get()), userId, userInput);
+            }
             chatMemoryService.addAssistantMessage(sessionId, response).subscribe();
             return Mono.just(response);
         }

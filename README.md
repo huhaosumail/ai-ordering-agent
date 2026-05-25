@@ -1,59 +1,84 @@
 # AI Ordering Agent - 智能点餐 Agent 系统
 
-基于 Spring Boot WebFlux 和 DeepSeek 大模型构建的智能点餐系统，支持自然语言点餐、智能菜品推荐、多轮对话记忆和工具调用能力。
+基于 **Spring Boot WebFlux**、**DeepSeek 大模型** 和 **React 聊天前端** 构建的智能点餐系统。支持自然语言查菜、推荐、下单，多轮对话记忆，Agent 工具调用，以及全链路操作日志留痕。
+
+## 项目概览
+
+| 模块 | 说明 |
+|------|------|
+| **后端** | Java 21 + WebFlux + R2DBC + H2，端口 `8080` |
+| **前端** | React + Vite 小助手，端口 `5173`，开发时代理 `/api` → 后端 |
+| **大模型** | DeepSeek Chat API（Agent 与 `/api/ai/*` 共用） |
+| **数据** | 启动时自动加载 3 类分类、8 道示例菜品 |
+
+### 典型使用场景
+
+1. 打开浏览器小助手 → 问「有什么辣的菜推荐？」→ Agent 查库并总结  
+2. 继续说「麻婆豆腐 三份」或「两份麻婆豆腐」→ Agent 调用 `create_order` 创建订单  
+3. 通过 `/api/logs` 按 `traceId` 追踪请求与 AI 调用  
 
 ## 技术栈
 
-- **框架**: Spring Boot 3.2.5 + Spring WebFlux (响应式)
-- **数据库**: H2 + R2DBC (响应式数据库)
-- **大模型**: DeepSeek Chat API
-- **HTTP客户端**: OkHttp 4.12.0
+- **框架**: Spring Boot 3.2.5 + Spring WebFlux（响应式）
+- **数据库**: H2 内存库 + R2DBC
+- **大模型**: DeepSeek Chat API（OkHttp）
+- **前端**: React 19 + Vite 8 + TypeScript
 - **语言**: Java 21
 
 ## 功能特性
 
-### 🍳 菜品管理
-- 菜品CRUD操作
-- 分类查询
-- 销量排行
-- 评分排行
+### 菜品与订单（REST）
 
-### 📋 订单管理
-- 创建订单
-- 查询订单列表
-- 查询订单详情
-- 更新订单状态
-- 取消订单
+- 菜品 CRUD、分类、搜索、销量/评分排行  
+- 订单创建、查询、状态更新、取消  
 
-### 🤖 AI智能点餐
-- **自然语言点餐**: 支持"我要一份宫保鸡丁和两份鱼香肉丝"
-- **智能推荐**: 根据用户偏好推荐菜品
+### AI 智能点餐（`/api/ai`）
 
-### 🧠 Agent智能对话 (新增)
-- **多轮对话记忆**: 基于RAG的对话历史管理
-- **工具调用能力**: 
-  - `query_dishes`: 查询菜品信息
-  - `query_orders`: 查询订单信息  
-  - `query_categories`: 查询分类信息
-- **会话管理**: 支持会话创建、查询、清除
+- **自然语言解析**: `POST /api/ai/order/parse`  
+- **一键下单**: `POST /api/ai/order`（解析 + 创建订单）  
+- **推荐**: `GET /api/ai/recommend`  
 
-### 📊 操作日志留痕
-- **全链路自动记录**: 所有 `/api/**` 请求由 `OperationLogWebFilter` 自动写入 `operation_log` 表
-- **链路追踪**: 响应头返回 `X-Trace-Id`，支持按 traceId 查询同一请求相关日志
-- **AI 内部调用留痕**: DeepSeek API 调用单独记录为 `AI` / `DEEPSEEK_CHAT`
-- **多维查询**: 支持按模块、成功/失败、关键词、时间范围分页查询
-- **统计分析**: 提供总量、成功率、按模块/小时分布等统计接口
+### Agent 智能对话（`/api/agent`）— 小助手核心
+
+- **默认调用 DeepSeek** 理解意图并决定是否使用工具  
+- **多轮记忆**: `chat_history` 表，默认最近 10 条上下文  
+- **工具能力**:
+
+| 工具 | 说明 |
+|------|------|
+| `query_dishes` | 按关键词/分类查菜品 |
+| `query_orders` | 查订单 |
+| `query_categories` | 查分类 |
+| `create_order` | 按菜名+数量创建订单 |
+
+- **会话 API**: 聊天、消息列表、摘要、清除会话  
+- **兜底机制**: API 失败或模型未返回工具调用时，本地解析下单意图（如「麻婆豆腐 三份」「三份麻婆豆腐」）并执行 `create_order`  
+
+### 操作日志留痕
+
+- 所有 `/api/**` 自动写入 `operation_log`  
+- 响应头 `X-Trace-Id` 链路追踪  
+- DeepSeek 内部调用记录为 `AI` / `AGENT_CHAT` 等  
 
 ## 快速开始
 
 ### 环境要求
 
-- JDK 21+
-- Maven 3.9+
+- JDK 21+、Maven 3.9+  
+- Node.js 18+（前端开发）  
+- 有效的 **DeepSeek API Key**（需账户有余额）  
 
-### 配置说明
+### 配置 DeepSeek（必做）
 
-在 `application.yml` 中配置 DeepSeek API：
+**推荐使用环境变量**（勿将真实 Key 提交到 Git）：
+
+```bash
+export AI_DEEPSEEK_API_KEY=你的密钥
+export AI_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1   # 可选
+export AI_DEEPSEEK_MODEL=deepseek-chat                     # 可选
+```
+
+`application.yml` 片段：
 
 ```yaml
 ai:
@@ -64,131 +89,96 @@ ai:
 
 agent:
   ordering:
+    # false（默认）= 调用 DeepSeek；true = 仅本地关键词模拟（联调/无 Key 时）
+    simulation-mode: ${AGENT_SIMULATION_MODE:false}
     memory:
       max-history-messages: 10
 ```
 
-**环境变量配置**（推荐生产环境使用）：
-- `AI_DEEPSEEK_API_KEY`: DeepSeek API密钥
-- `AI_DEEPSEEK_BASE_URL`: API基础URL
-- `AI_DEEPSEEK_MODEL`: 使用的模型名称
+### 启动前后端（开发）
 
-### 运行方式
-
-**开发模式**:
 ```bash
+# 终端 1：后端（先 export AI_DEEPSEEK_API_KEY）
 cd ai-ordering-agent
 mvn spring-boot:run
-```
 
-**打包运行**:
-```bash
-mvn clean package
-java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
-```
-
-服务启动后访问: http://localhost:8080
-
-### 前端聊天界面 (React)
-
-项目提供 React 前端，对接 `/api/agent/chat` 实现多轮对话。
-
-**开发模式**（需先启动后端）:
-
-```bash
-# 终端 1：启动后端
-mvn spring-boot:run
-
-# 终端 2：启动前端（Vite 代理 /api → localhost:8080）
+# 终端 2：前端
 cd frontend
 npm install
 npm run dev
 ```
 
-浏览器访问: http://localhost:5173
+- **小助手**: http://localhost:5173  
+- **后端 API**: http://localhost:8080  
+- **H2 控制台**: http://localhost:8080/h2-console  
 
-**Docker 一键部署前后端**:
+### Docker 一键部署
 
 ```bash
-# 设置 DeepSeek API Key（必填）
 export AI_DEEPSEEK_API_KEY=your-api-key
-
 docker compose up --build -d
 ```
 
-- 前端: http://localhost:3000（Nginx 反向代理 API 到后端）
-- 后端 API: http://localhost:8080
+- 前端: http://localhost:3000  
+- 后端: http://localhost:8080  
 
-### H2控制台
+### 打包运行
 
-访问 H2 数据库控制台: http://localhost:8080/h2-console
+```bash
+mvn clean package
+export AI_DEEPSEEK_API_KEY=你的密钥
+java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
+```
 
-## API 接口
+## 如何确认已走 DeepSeek
 
-### 菜品管理
+查看后端日志：
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| GET | `/api/dishes` | 获取所有可用菜品 |
-| GET | `/api/dishes/{id}` | 获取菜品详情 |
-| POST | `/api/dishes` | 创建菜品 |
-| PUT | `/api/dishes/{id}` | 更新菜品 |
-| DELETE | `/api/dishes/{id}` | 删除菜品 |
-| GET | `/api/dishes/category/{category}` | 按分类查询 |
-| GET | `/api/dishes/search?keyword=xxx` | 搜索菜品 |
-| GET | `/api/dishes/top-sales` | 销量排行 |
-| GET | `/api/dishes/top-rated` | 评分排行 |
+- **成功**: 无 `DeepSeek API调用失败`，回复为自然语言（非固定模板）  
+- **失败降级**: 出现 `DeepSeek API调用失败: 402`（余额/Key）等，随后 `使用模拟模式响应`  
 
-### 订单管理
+充值或更换 Key 后需**重启后端**，并确保进程能读到 `AI_DEEPSEEK_API_KEY`。
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | `/api/orders` | 创建订单 |
-| GET | `/api/orders` | 获取订单列表 |
-| GET | `/api/orders/{id}` | 获取订单详情 |
-| PUT | `/api/orders/{id}/status` | 更新订单状态 |
-| DELETE | `/api/orders/{id}` | 取消订单 |
+## API 接口摘要
 
-### AI智能点餐
+### Agent 对话
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| POST | `/api/ai/order/parse` | 解析自然语言点餐 |
-| POST | `/api/ai/order` | AI智能点餐 |
-| GET | `/api/ai/recommend` | 获取菜品推荐 |
+| POST | `/api/agent/chat` | 智能对话（body: `sessionId`, `message`, `userId` 可选） |
+| GET | `/api/agent/session/{id}/messages` | 会话消息列表 |
+| GET | `/api/agent/session/{id}/summary` | 会话摘要 |
+| DELETE | `/api/agent/session/{id}` | 清除会话 |
 
-### Agent智能对话 (新增)
+### 菜品 / 订单 / AI / 日志
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | `/api/agent/chat` | 智能对话（支持工具调用和记忆） |
-| GET | `/api/agent/session/{sessionId}/summary` | 获取会话摘要 |
-| GET | `/api/agent/session/{sessionId}/messages` | 获取会话消息列表 |
-| DELETE | `/api/agent/session/{sessionId}` | 清除会话 |
-
-### 操作日志
-
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| GET | `/api/logs` | 分页查询操作日志（支持 module、success、keyword、startTime、endTime） |
-| GET | `/api/logs/{id}` | 获取单条日志详情 |
-| GET | `/api/logs/trace/{traceId}` | 按链路 ID 查询日志 |
-| GET | `/api/logs/stats` | 操作日志统计（默认近 7 天） |
-
-**模块划分**:
-
-| 路径前缀 | 模块标识 |
-|---------|---------|
-| `/api/ai` | AI |
-| `/api/agent` | AGENT |
-| `/api/orders` | ORDER |
-| `/api/dishes` | DISH |
-| `/api/categories` | CATEGORY |
-| `/api/logs` | LOG |
+详见下文「API 使用示例」及原表；日志模块路径前缀 `/api/logs`。
 
 ## API 使用示例
 
-### 1. 自然语言点餐解析
+### Agent：查辣味推荐
+
+```bash
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"demo-1","message":"有什么辣的菜推荐？"}'
+```
+
+### Agent：自然语言下单
+
+支持多种说法，例如：
+
+- `我要两份麻婆豆腐`  
+- `麻婆豆腐 三份`  
+- `麻婆豆腐三份`  
+
+```bash
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"demo-1","message":"麻婆豆腐 三份"}'
+```
+
+### AI 解析点餐（不经过 Agent 会话）
 
 ```bash
 curl -X POST http://localhost:8080/api/ai/order/parse \
@@ -196,130 +186,16 @@ curl -X POST http://localhost:8080/api/ai/order/parse \
   -d '{"input":"我要一份宫保鸡丁和两份鱼香肉丝"}'
 ```
 
-**响应示例**:
-```json
-{"code":200,"message":"success","data":{"userId":null,"tableNo":null,"items":[{"dishId":1,"quantity":1},{"dishId":2,"quantity":2}],"remark":""}}
-```
-
-### 2. AI智能点餐
-
-```bash
-curl -X POST http://localhost:8080/api/ai/order \
-  -H "Content-Type: application/json" \
-  -d '{"input":"我要一份宫保鸡丁"}'
-```
-
-### 3. 获取菜品推荐
-
-```bash
-curl -X GET "http://localhost:8080/api/ai/recommend?preferences=喜欢辣的"
-```
-
-### 4. Agent智能对话（新增）
-
-```bash
-# 查询菜品
-curl -X POST http://localhost:8080/api/agent/chat \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId":"user-123","message":"有什么好吃的推荐吗？"}'
-
-# 继续对话（上下文记忆）
-curl -X POST http://localhost:8080/api/agent/chat \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId":"user-123","message":"有辣的菜吗？"}'
-
-# 查询订单
-curl -X POST http://localhost:8080/api/agent/chat \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId":"user-123","message":"查询我的订单"}'
-```
-
-**响应示例**:
-```json
-{"code":200,"message":"success","data":"当前可用的辣味菜品有：\n- 宫保鸡丁 (中式菜肴) - ¥38.00\n  描述：经典川菜，鸡肉鲜嫩，花生酥脆\n- 鱼香肉丝 (中式菜肴) - ¥32.00\n  描述：酸甜微辣，口感丰富\n- 麻婆豆腐 (中式菜肴) - ¥28.00\n  描述：麻辣鲜香，下饭神器"}
-```
-
-### 5. 获取会话摘要
-
-```bash
-curl http://localhost:8080/api/agent/session/user-123/summary
-```
-
-### 6. 创建订单
-
-```bash
-curl -X POST http://localhost:8080/api/orders \
-  -H "Content-Type: application/json" \
-  -d '{
-    "items": [
-      {"dishId": 1, "quantity": 2},
-      {"dishId": 2, "quantity": 1}
-    ],
-    "remark": "少辣"
-  }'
-```
-
-### 7. 查询菜品列表
+### 查询菜品
 
 ```bash
 curl http://localhost:8080/api/dishes
 ```
 
-### 8. 查询操作日志
+### 操作日志
 
 ```bash
-# 分页查询（可按模块、成功状态、关键词筛选）
-curl "http://localhost:8080/api/logs?module=AI&page=0&size=20"
-
-# 查询失败记录
-curl "http://localhost:8080/api/logs?success=false"
-
-# 按关键词搜索
-curl "http://localhost:8080/api/logs?keyword=宫保鸡丁"
-```
-
-**响应示例**:
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "content": [
-      {
-        "id": 1,
-        "traceId": "ba00c97f-81c1-4084-a4f1-712875e70bb7",
-        "module": "AI",
-        "action": "AI_PARSE_ORDER",
-        "httpMethod": "POST",
-        "requestPath": "/api/ai/order/parse",
-        "requestParams": "{\"input\":\"我要一份宫保鸡丁\"}",
-        "responseStatus": 200,
-        "success": true,
-        "durationMs": 1200,
-        "createdAt": "2026-05-25T10:42:30.611666"
-      }
-    ],
-    "page": 0,
-    "size": 20,
-    "totalElements": 1,
-    "totalPages": 1
-  }
-}
-```
-
-### 9. 操作日志统计
-
-```bash
-curl "http://localhost:8080/api/logs/stats"
-
-# 指定时间范围
-curl "http://localhost:8080/api/logs/stats?startTime=2026-05-01T00:00:00&endTime=2026-05-25T23:59:59"
-```
-
-### 10. 按链路 ID 追踪
-
-```bash
-# 从响应头 X-Trace-Id 获取 traceId
+curl "http://localhost:8080/api/logs?module=AGENT&page=0&size=20"
 curl "http://localhost:8080/api/logs/trace/{traceId}"
 ```
 
@@ -327,137 +203,84 @@ curl "http://localhost:8080/api/logs/trace/{traceId}"
 
 ```
 ai-ordering-agent/
-├── frontend/               # React 聊天前端 (Vite)
-│   ├── src/
-│   │   ├── api/agent.ts    # Agent API 客户端
-│   │   └── components/     # 聊天 UI 组件
-│   ├── Dockerfile
-│   └── nginx.conf
-├── docker-compose.yml      # 前后端一键部署
-├── src/main/java/com/ximalaya/ai/ordering/
-│   ├── agent/              # Agent核心模块 (新增)
-│   │   ├── AgentService.java
-│   │   ├── impl/
-│   │   │   └── AgentServiceImpl.java
-│   │   ├── tool/           # 工具调用 (新增)
-│   │   │   ├── Tool.java
-│   │   │   ├── DishQueryTool.java
-│   │   │   ├── OrderQueryTool.java
-│   │   │   └── CategoryQueryTool.java
-│   │   └── ToolDefinition.java
-│   ├── controller/         # REST API 控制层
-│   │   ├── AiOrderingController.java
-│   │   ├── AgentController.java  # Agent对话控制器 (新增)
-│   │   ├── CategoryController.java
-│   │   ├── DishController.java
-│   │   ├── OperationLogController.java
-│   │   └── OrderController.java
-│   ├── service/            # 业务逻辑层
-│   │   ├── ChatMemoryService.java      # RAG记忆服务 (新增)
-│   │   ├── AiOrderingService.java
-│   │   ├── DishService.java
-│   │   ├── OperationLogService.java
-│   │   ├── OrderService.java
-│   │   └── impl/
-│   │       ├── ChatMemoryServiceImpl.java  # RAG记忆实现 (新增)
-│   │       ├── AiOrderingServiceImpl.java
-│   │       ├── DishServiceImpl.java
-│   │       ├── OperationLogServiceImpl.java
-│   │       └── OrderServiceImpl.java
-│   ├── repository/         # 数据访问层
-│   │   ├── ChatHistoryRepository.java  # 对话历史 (新增)
-│   │   ├── CategoryRepository.java
-│   │   ├── DishRepository.java
-│   │   ├── OperationLogRepository.java
-│   │   └── OrderRepository.java
-│   ├── entity/             # 数据库实体
-│   │   ├── ChatHistory.java  # 对话历史实体 (新增)
-│   │   ├── Category.java
-│   │   ├── Dish.java
-│   │   ├── OperationLog.java
-│   │   └── Order.java
-│   ├── dto/                # 数据传输对象
-│   ├── filter/             # WebFilter（操作日志自动留痕）
-│   ├── util/               # 工具类
-│   ├── config/             # 配置类
-│   │   ├── AiConfig.java   # AI配置 (新增)
+├── frontend/                    # React 点餐小助手
+│   ├── src/api/agent.ts         # Agent API
+│   ├── src/components/ChatApp.tsx
+│   ├── vite.config.ts           # 开发代理 /api → :8080
+│   └── Dockerfile / nginx.conf
+├── docker-compose.yml
+├── src/main/java/.../ordering/
+│   ├── agent/
+│   │   ├── impl/AgentServiceImpl.java   # DeepSeek + 工具编排 + 模拟兜底
+│   │   └── tool/
+│   │       ├── DishQueryTool.java
+│   │       ├── OrderQueryTool.java
+│   │       ├── CategoryQueryTool.java
+│   │       └── CreateOrderTool.java     # 下单工具
+│   ├── controller/              # REST（含 AgentController）
+│   ├── service/                 # 业务 + ChatMemory + AiOrdering
+│   ├── config/
+│   │   ├── DataInitializer.java # 示例数据（须在 java 目录下）
 │   │   └── R2dbcConfig.java
-│   └── Application.java    # 启动类
+│   ├── filter/OperationLogWebFilter.java
+│   └── ...
 ├── src/main/resources/
-│   ├── application.yml     # 配置文件
-│   └── schema.sql          # 数据库表结构
-└── pom.xml                 # Maven配置
+│   ├── application.yml
+│   └── schema.sql
+├── TECH_ARCHITECTURE.md         # 架构说明
+├── AI_ORDERING_DISCUSSION_SUMMARY.md
+└── pom.xml
 ```
 
-## Agent架构说明 (新增)
-
-### 核心组件
-
-1. **AgentService**: 主入口，负责接收用户消息并返回响应
-2. **ChatMemoryService**: RAG记忆模块，管理对话历史
-3. **Tool**: 工具接口，定义可调用的工具能力
-4. **DishQueryTool**: 菜品查询工具
-5. **OrderQueryTool**: 订单查询工具
-6. **CategoryQueryTool**: 分类查询工具
-
-### 工作流程
+## Agent 架构
 
 ```
-用户消息 → AgentService → 检查是否需要调用工具
-                          ↓
-                     LLM分析意图
-                          ↓
-              ┌───────────┴───────────┐
-              ↓                       ↓
-         需要调用工具           直接回答用户
-              ↓                       ↓
-     执行工具调用              返回自然语言响应
-              ↓
-     获取工具结果
-              ↓
-     LLM总结结果
-              ↓
-     返回自然语言响应
+用户消息 → AgentController → AgentService
+                ↓
+        加载会话历史 (ChatMemory)
+                ↓
+        DeepSeek（simulation-mode=false）
+                ↓
+    ┌───────────┴────────────┐
+    │ 返回 <function ...>   │  直接文本回复
+    └───────────┬────────────┘
+                ↓
+         执行 Tool（查菜/查单/下单）
+                ↓
+         再次调用 DeepSeek 总结（或本地 summarize）
+                ↓
+         写入 chat_history → 返回用户
 ```
 
-### 工具调用格式
+**工具调用格式**（模型或模拟层输出）：
 
-Agent支持以下工具调用格式：
+```text
+<function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}],"userId":1}'>
 ```
-<function name="工具名" params="参数JSON">
-```
-
-**可用工具**:
-- `query_dishes`: 查询菜品
-  - 参数: `keyword` (可选), `category` (可选)
-- `query_orders`: 查询订单
-  - 参数: `orderNo` (可选), `userId` (可选), `status` (可选)
-- `query_categories`: 查询分类
-  - 参数: 无
-
-### RAG记忆机制
-
-- 对话历史存储在 `chat_history` 表中
-- 支持按sessionId管理多个会话
-- 默认保留最近10条消息作为上下文
-- 支持会话清除和摘要生成
-
-## 响应式架构说明
-
-本项目采用 Spring WebFlux 响应式架构，具有以下特点：
-
-- **非阻塞IO**: 所有数据库操作使用 R2DBC
-- **异步处理**: 使用 Mono/Flux 进行异步数据流处理
-- **高性能**: 支持高并发场景
-- **事件驱动**: 基于 Reactor 响应式编程模型
 
 ## 测试数据
 
-系统启动时自动初始化以下测试数据：
+启动后 `DataInitializer` 自动写入：
 
-**分类**: 中式菜肴、西式料理、甜点饮品
+- **分类**: 中式菜肴、西式料理、甜点饮品  
+- **菜品**: 宫保鸡丁、鱼香肉丝、麻婆豆腐、糖醋里脊、黑椒牛柳、意大利面、提拉米苏、芒果布丁  
 
-**菜品**: 宫保鸡丁、鱼香肉丝、麻婆豆腐、糖醋里脊、黑椒牛柳、意大利面、提拉米苏、芒果布丁
+辣味相关查询会匹配名称/描述中含「辣」的菜品（如鱼香肉丝、麻婆豆腐）。
+
+## 常见问题
+
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| 固定问候语、不像 AI | DeepSeek 402/401，降级模拟 | 充值、设置 `AI_DEEPSEEK_API_KEY` 并重启 |
+| 查不到任何菜 | 示例数据未加载 | 确认 `DataInitializer` 在 `src/main/java/.../config/` |
+| 说了份数却不下单 | 旧版仅支持「三份麻婆豆腐」 | 已支持「麻婆豆腐 三份」及兜底下单 |
+| 前端 API 失败 | 后端未启动 | 先 `mvn spring-boot:run`，再 `npm run dev` |
+
+## 相关文档
+
+- [TECH_ARCHITECTURE.md](./TECH_ARCHITECTURE.md) — 技术架构与调用链  
+- [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md) — 方案讨论摘要  
+- [frontend/README.md](./frontend/README.md) — 前端说明  
 
 ## License
 
