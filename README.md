@@ -29,6 +29,13 @@
 - **自然语言点餐**: 支持"我要一份宫保鸡丁和两份鱼香肉丝"
 - **智能推荐**: 根据用户偏好推荐菜品
 
+### 📊 操作日志留痕
+- **全链路自动记录**: 所有 `/api/**` 请求由 `OperationLogWebFilter` 自动写入 `operation_log` 表
+- **链路追踪**: 响应头返回 `X-Trace-Id`，支持按 traceId 查询同一请求相关日志
+- **AI 内部调用留痕**: DeepSeek API 调用单独记录为 `AI` / `DEEPSEEK_CHAT`
+- **多维查询**: 支持按模块、成功/失败、关键词、时间范围分页查询
+- **统计分析**: 提供总量、成功率、按模块/小时分布等统计接口
+
 ## 快速开始
 
 ### 环境要求
@@ -102,6 +109,25 @@ java -jar target/ai-ordering-agent-1.0.0-SNAPSHOT.jar
 | POST | `/api/ai/order` | AI智能点餐 |
 | GET | `/api/ai/recommend` | 获取菜品推荐 |
 
+### 操作日志
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/logs` | 分页查询操作日志（支持 module、success、keyword、startTime、endTime） |
+| GET | `/api/logs/{id}` | 获取单条日志详情 |
+| GET | `/api/logs/trace/{traceId}` | 按链路 ID 查询日志 |
+| GET | `/api/logs/stats` | 操作日志统计（默认近 7 天） |
+
+**模块划分**:
+
+| 路径前缀 | 模块标识 |
+|---------|---------|
+| `/api/ai` | AI |
+| `/api/orders` | ORDER |
+| `/api/dishes` | DISH |
+| `/api/categories` | CATEGORY |
+| `/api/logs` | LOG |
+
 ## API 使用示例
 
 ### 1. 自然语言点餐解析
@@ -151,6 +177,64 @@ curl -X POST http://localhost:8080/api/orders \
 curl http://localhost:8080/api/dishes
 ```
 
+### 6. 查询操作日志
+
+```bash
+# 分页查询（可按模块、成功状态、关键词筛选）
+curl "http://localhost:8080/api/logs?module=AI&page=0&size=20"
+
+# 查询失败记录
+curl "http://localhost:8080/api/logs?success=false"
+
+# 按关键词搜索
+curl "http://localhost:8080/api/logs?keyword=宫保鸡丁"
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "content": [
+      {
+        "id": 1,
+        "traceId": "ba00c97f-81c1-4084-a4f1-712875e70bb7",
+        "module": "AI",
+        "action": "AI_PARSE_ORDER",
+        "httpMethod": "POST",
+        "requestPath": "/api/ai/order/parse",
+        "requestParams": "{\"input\":\"我要一份宫保鸡丁\"}",
+        "responseStatus": 200,
+        "success": true,
+        "durationMs": 1200,
+        "createdAt": "2026-05-25T10:42:30.611666"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
+### 7. 操作日志统计
+
+```bash
+curl "http://localhost:8080/api/logs/stats"
+
+# 指定时间范围
+curl "http://localhost:8080/api/logs/stats?startTime=2026-05-01T00:00:00&endTime=2026-05-25T23:59:59"
+```
+
+### 8. 按链路 ID 追踪
+
+```bash
+# 从响应头 X-Trace-Id 获取 traceId
+curl "http://localhost:8080/api/logs/trace/{traceId}"
+```
+
 ## 项目结构
 
 ```
@@ -161,10 +245,13 @@ ai-ordering-agent/
 │   ├── repository/      # 数据访问层
 │   ├── entity/          # 数据库实体
 │   ├── dto/             # 数据传输对象
-│   ├── config/          # 配置类
+│   ├── filter/          # WebFilter（操作日志自动留痕）
+│   ├── util/            # 工具类
+│   ├── config/          # 配置类（R2DBC 建表等）
 │   └── Application.java # 启动类
 ├── src/main/resources/
-│   └── application.yml  # 配置文件
+│   ├── application.yml  # 配置文件
+│   └── schema.sql       # 数据库表结构（含 operation_log）
 └── pom.xml              # Maven配置
 ```
 

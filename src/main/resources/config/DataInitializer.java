@@ -74,6 +74,25 @@ public class DataInitializer implements CommandLineRunner {
                 "FOREIGN KEY(order_id) REFERENCES orders(id), " +
                 "FOREIGN KEY(dish_id) REFERENCES dish(id)" +
                 ")").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE TABLE IF NOT EXISTS operation_log (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "trace_id VARCHAR(64) NOT NULL, " +
+                "module VARCHAR(32) NOT NULL, " +
+                "action VARCHAR(64) NOT NULL, " +
+                "http_method VARCHAR(16), " +
+                "request_path VARCHAR(500) NOT NULL, " +
+                "request_params CLOB, " +
+                "response_status INTEGER, " +
+                "success BOOLEAN DEFAULT TRUE, " +
+                "error_message VARCHAR(1000), " +
+                "duration_ms BIGINT, " +
+                "user_id BIGINT, " +
+                "client_ip VARCHAR(64), " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE INDEX IF NOT EXISTS idx_op_log_trace ON operation_log(trace_id)").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE INDEX IF NOT EXISTS idx_op_log_module ON operation_log(module)").fetch().rowsUpdated())
+        .then(databaseClient.sql("CREATE INDEX IF NOT EXISTS idx_op_log_created ON operation_log(created_at)").fetch().rowsUpdated())
         .then(categoryRepository.deleteAll())
         .thenMany(Flux.just(
                 Category.builder().name("中式菜肴").description("传统中式菜品").sortOrder(1).createdAt(LocalDateTime.now()).build(),

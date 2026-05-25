@@ -4,6 +4,8 @@ import com.ximalaya.ai.ordering.dto.request.OrderRequest;
 import com.ximalaya.ai.ordering.dto.request.OrderRequest.OrderItem;
 import com.ximalaya.ai.ordering.repository.DishRepository;
 import com.ximalaya.ai.ordering.service.AiOrderingService;
+import com.ximalaya.ai.ordering.service.OperationLogService;
+import com.ximalaya.ai.ordering.util.OperationLogHelper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
@@ -28,6 +30,7 @@ public class AiOrderingServiceImpl implements AiOrderingService {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final DishRepository dishRepository;
+    private final OperationLogService operationLogService;
     private final String apiKey;
     private final String baseUrl;
     private final String model;
@@ -60,10 +63,12 @@ public class AiOrderingServiceImpl implements AiOrderingService {
             """;
 
     public AiOrderingServiceImpl(DishRepository dishRepository,
+                                 OperationLogService operationLogService,
                                  @Value("${ai.deepseek.api-key}") String apiKey,
                                  @Value("${ai.deepseek.base-url}") String baseUrl,
                                  @Value("${ai.deepseek.model}") String model) {
         this.dishRepository = dishRepository;
+        this.operationLogService = operationLogService;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.model = model;
@@ -141,6 +146,7 @@ public class AiOrderingServiceImpl implements AiOrderingService {
     }
 
     private String callDeepSeek(String prompt) {
+        long start = System.currentTimeMillis();
         try {
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", model);
@@ -170,16 +176,32 @@ public class AiOrderingServiceImpl implements AiOrderingService {
             try (Response response = httpClient.newCall(request).execute()) {
                 if (!response.isSuccessful()) {
                     log.error("DeepSeek API调用失败: {}", response.code());
+                    recordAiCall(prompt, false, "HTTP " + response.code(), System.currentTimeMillis() - start, null);
                     return "{\"items\":[],\"suggestion\":\"系统繁忙，请稍后重试\"}";
                 }
-                
+
                 String responseBody = response.body() != null ? response.body().string() : "";
-                return extractContent(responseBody);
+                String content = extractContent(responseBody);
+                recordAiCall(prompt, true, null, System.currentTimeMillis() - start, null);
+                return content;
             }
         } catch (Exception e) {
             log.error("DeepSeek API调用异常: {}", e.getMessage());
+            recordAiCall(prompt, false, e.getMessage(), System.currentTimeMillis() - start, null);
             return "{\"items\":[],\"suggestion\":\"系统繁忙，请稍后重试\"}";
         }
+    }
+
+    private void recordAiCall(String prompt, boolean success, String errorMessage, long durationMs, Long userId) {
+        operationLogService.recordInternal(
+                "AI",
+                "DEEPSEEK_CHAT",
+                OperationLogHelper.truncate(prompt),
+                success,
+                errorMessage,
+                durationMs,
+                userId
+        ).subscribe();
     }
 
     private String extractContent(String responseJson) {
