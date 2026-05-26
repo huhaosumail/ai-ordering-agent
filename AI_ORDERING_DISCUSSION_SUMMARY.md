@@ -58,7 +58,7 @@
 
 以下在讨论稿之后已落地，细节见 README：
 
-- Agent 多轮对话与 5 个工具（含 `semantic_search_dishes`）  
+- Agent 多轮对话与 6 个工具（`query_dishes`、`semantic_search_dishes`、`query_dishes_sales_rank`、`query_orders`、`query_categories`、`create_order`）  
 - RAG + `dish_embedding` 向量索引  
 - 飞书 `im.message.receive_v1` Webhook  
 - 操作日志 `operation_log` + `X-Trace-Id`  

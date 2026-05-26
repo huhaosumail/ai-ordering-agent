@@ -34,6 +34,17 @@ export SPRING_PROFILES_ACTIVE=local
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
+## Agent 工具一览
+
+| 工具名 | 类 |
+|--------|-----|
+| `query_dishes` | `DishQueryTool` |
+| `semantic_search_dishes` | `SemanticDishSearchTool` |
+| `query_dishes_sales_rank` | `DishSalesRankTool` |
+| `query_orders` | `OrderQueryTool` |
+| `query_categories` | `CategoryQueryTool` |
+| `create_order` | `CreateOrderTool` |
+
 ## 常用命令
 
 ```bash
@@ -50,6 +61,13 @@ curl -X POST http://localhost:8080/api/agent/chat \
   -H "Content-Type: application/json" \
   -d '{"sessionId":"dev-1","message":"有什么辣的菜推荐？"}'
 
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"dev-1","message":"销量最高的菜有哪些？"}'
+
+# REST 销量榜（不经 Agent）
+curl http://localhost:8080/api/dishes/top-sales
+
 # 前端
 cd frontend && npm install && npm run dev
 ```
@@ -57,9 +75,11 @@ cd frontend && npm install && npm run dev
 ## 新增 Agent 工具
 
 1. 在 `agent/tool/` 实现 `Tool` 接口（`getName`、`execute`）
-2. 注册到 `AgentServiceImpl` 的 `tools` 列表
-3. 在 `SYSTEM_PROMPT` 中补充工具说明与参数格式
-4. 工具输出格式：`<function name="xxx" params='{"key":"value"}'>`
+2. 注册到 `AgentServiceImpl` 的 `tools` 列表与构造函数注入
+3. 在 `SYSTEM_PROMPT` 中补充工具说明与参数格式；模拟模式可在 `simulateToolCall` / `summarizeToolResults` 增加兜底
+4. 工具调用格式：`<function name="xxx" params='{"key":"value"}'>`
+
+参考实现：`DishSalesRankTool`（`DishRepository.findTopSales`，参数 `limit` 默认 10、最大 20）。
 
 ## 修改菜品后
 

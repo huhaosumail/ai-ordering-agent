@@ -15,7 +15,7 @@ Client / 飞书 / 前端
   REST Controllers (WebFlux)
         │
         ├── AgentService ──► DeepSeek Chat API
-        │       ├── Tools (查菜/下单/语义检索)
+        │       ├── Tools (查菜/销量榜/语义检索/下单)
         │       └── RagService ──► EmbeddingService ──► bge-m3 / 方舟 / 本地向量
         ├── AiOrderingService ──► DeepSeek
         ├── Dish / Order / Category Services
@@ -63,15 +63,24 @@ Client / 飞书 / 前端
 | 工具名 | 类 |
 |--------|-----|
 | `query_dishes` | `DishQueryTool` |
+| `query_dishes_sales_rank` | `DishSalesRankTool` |
 | `semantic_search_dishes` | `SemanticDishSearchTool` |
 | `query_orders` | `OrderQueryTool` |
 | `query_categories` | `CategoryQueryTool` |
 | `create_order` | `CreateOrderTool` |
 
+**`DishSalesRankTool`（`query_dishes_sales_rank`）**
+
+- 数据源：`DishRepository.findTopSales(limit)`，`WHERE is_available = true ORDER BY sales_count DESC`
+- 参数：`limit`（可选，默认 10，上限 20）
+- 与 REST `GET /api/dishes/top-sales` 同源查询逻辑（REST 固定 Top 10，经 `DishService.getTopSales()`）
+- 模拟模式：`AgentServiceImpl.containsSalesRankIntent` 识别「销量 / 畅销 / 卖得最好 / 排行榜」等关键词
+
 工具调用格式：
 
 ```text
 <function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}]}'>
+<function name="query_dishes_sales_rank" params='{"limit":5}'>
 ```
 
 ### 3.3 RAG 与向量
@@ -137,6 +146,7 @@ package "Core" {
 
 package "Tools" {
   [DishQueryTool]
+  [DishSalesRankTool]
   [SemanticDishSearchTool]
   [CreateOrderTool]
 }
@@ -216,6 +226,8 @@ Feishu --> [FeishuController]
 | 资源 | 基础路径 |
 |------|----------|
 | 菜品 | `/api/dishes` |
+| 菜品销量榜 | `GET /api/dishes/top-sales` |
+| 菜品评分榜 | `GET /api/dishes/top-rated` |
 | 订单 | `/api/orders` |
 | 分类 | `/api/categories` |
 | 日志 | `/api/logs` |

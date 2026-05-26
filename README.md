@@ -26,7 +26,10 @@
 | 向量模型 | 豆包 bge-m3 / 火山方舟（可选） | `ai.embedding.*` |
 | 飞书（可选） | 事件订阅 Webhook | `feishu.enabled=true` |
 
-**典型路径**：浏览器或飞书发「有什么辣的菜推荐？」→ Agent 检索/查库 → 回复；说「麻婆豆腐 三份」→ `create_order` 下单。
+**典型路径**：
+- 「有什么辣的菜推荐？」→ `semantic_search_dishes` / RAG → 推荐列表
+- 「销量最高的菜有哪些？」→ `query_dishes_sales_rank` → 按 `sales_count` 降序排行
+- 「麻婆豆腐 三份」→ `create_order` 下单
 
 ---
 
@@ -82,12 +85,14 @@ docker compose up --build -d
 ### REST 业务
 
 - 菜品 / 分类 / 订单 CRUD 与搜索（`/api/dishes`、`/api/orders` 等）
+- 销量榜：`GET /api/dishes/top-sales`（固定 Top 10，与 Agent 工具共用 `DishRepository.findTopSales`）
 
 ### Agent 对话（核心）— `/api/agent`
 
 | 工具 | 说明 |
 |------|------|
 | `query_dishes` | 关键词/分类查菜 |
+| `query_dishes_sales_rank` | 销量排行榜；`limit` 可选（默认 10，最大 20），仅统计 `is_available=true` |
 | `semantic_search_dishes` | RAG 语义检索（口味、场景描述） |
 | `query_orders` / `query_categories` | 查单、查分类 |
 | `create_order` | 按菜名+数量下单 |
@@ -124,7 +129,7 @@ docker compose up --build -d
 |-------|----------|
 | `ai-ordering-dev` | 改后端、加 Agent 工具、测 RAG/飞书、查密钥与命令 |
 
-在 Cursor 中可说：「按 ai-ordering-dev skill 帮我加一个查销量工具」。新增 Skill 见 [.cursor/skills/README.md](./.cursor/skills/README.md)。
+在 Cursor 中可说：「按 ai-ordering-dev skill 帮我加一个 Agent 工具」。新增 Skill 见 [.cursor/skills/README.md](./.cursor/skills/README.md)。
 
 ---
 
@@ -179,9 +184,21 @@ export FEISHU_ENCRYPT_KEY=xxxx    # 控制台开启加密时
 ### Agent
 
 ```bash
+# 语义推荐
 curl -X POST http://localhost:8080/api/agent/chat \
   -H "Content-Type: application/json" \
   -d '{"sessionId":"demo-1","message":"有什么辣的菜推荐？"}'
+
+# 销量排行（会调用 query_dishes_sales_rank）
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"demo-1","message":"销量最高的菜有哪些？"}'
+```
+
+### 菜品（REST，不经 Agent）
+
+```bash
+curl http://localhost:8080/api/dishes/top-sales
 ```
 
 ### RAG
@@ -225,7 +242,7 @@ ai-ordering-agent/
 
 ## 测试数据
 
-启动后自动加载 3 个分类、8 道示例菜（宫保鸡丁、麻婆豆腐等）。辣味相关会匹配名称/描述含「辣」的菜品。
+启动后自动加载 3 个分类、8 道示例菜（宫保鸡丁、麻婆豆腐等），每道菜带 `sales_count` 便于测销量榜。辣味相关会匹配名称/描述含「辣」的菜品；销量榜示例 Top 3 约为宫保鸡丁、麻婆豆腐、鱼香肉丝。
 
 ---
 

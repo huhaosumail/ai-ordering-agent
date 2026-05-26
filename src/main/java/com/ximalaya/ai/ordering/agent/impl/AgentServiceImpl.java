@@ -4,6 +4,7 @@ import com.ximalaya.ai.ordering.agent.AgentService;
 import com.ximalaya.ai.ordering.agent.tool.CategoryQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.CreateOrderTool;
 import com.ximalaya.ai.ordering.agent.tool.DishQueryTool;
+import com.ximalaya.ai.ordering.agent.tool.DishSalesRankTool;
 import com.ximalaya.ai.ordering.agent.tool.OrderQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.SemanticDishSearchTool;
 import com.ximalaya.ai.ordering.agent.tool.Tool;
@@ -53,7 +54,9 @@ public class AgentServiceImpl implements AgentService {
             3. query_orders - 查询订单信息
                参数：orderNo(可选) - 订单号；userId(可选) - 用户ID；status(可选) - 订单状态
             4. query_categories - 查询所有分类
-            5. create_order - 创建订单（用户明确要点菜、下单时使用）
+            5. query_dishes_sales_rank - 查询销量排行榜（畅销、卖得最好）
+               参数：limit(可选) - 返回条数，默认 10，最大 20
+            6. create_order - 创建订单（用户明确要点菜、下单时使用）
                参数：items(必填) - [{\"name\":\"菜品名\",\"quantity\":数量}]；userId(可选)；tableNo(可选)；remark(可选)
                示例：用户说「麻婆豆腐三份」「两份宫保鸡丁」时必须调用 create_order，不要只回复问候语。
             
@@ -65,6 +68,7 @@ public class AgentServiceImpl implements AgentService {
             
             思考过程：你需要根据用户的问题判断是否需要调用工具。如果需要调用工具，请输出工具调用；如果不需要，可以直接回答用户。
             
+            当用户问销量、畅销、卖得最好、排行榜时，使用 query_dishes_sales_rank。
             当用户用口味/场景/模糊描述找菜时，优先使用 semantic_search_dishes；已知菜名时用 query_dishes。
             系统可能附带【RAG 检索到的相关菜品】上下文，请结合使用。
             
@@ -76,6 +80,7 @@ public class AgentServiceImpl implements AgentService {
     public AgentServiceImpl(ChatMemoryServiceImpl chatMemoryService,
                            OperationLogService operationLogService,
                            DishQueryTool dishQueryTool,
+                           DishSalesRankTool dishSalesRankTool,
                            SemanticDishSearchTool semanticDishSearchTool,
                            OrderQueryTool orderQueryTool,
                            CategoryQueryTool categoryQueryTool,
@@ -98,7 +103,8 @@ public class AgentServiceImpl implements AgentService {
                 .writeTimeout(java.time.Duration.ofSeconds(30))
                 .build();
         this.tools = Arrays.asList(
-                dishQueryTool, semanticDishSearchTool, orderQueryTool, categoryQueryTool, createOrderTool);
+                dishQueryTool, dishSalesRankTool, semanticDishSearchTool,
+                orderQueryTool, categoryQueryTool, createOrderTool);
     }
 
     @Override
@@ -216,6 +222,9 @@ public class AgentServiceImpl implements AgentService {
         if (userMsg.contains("分类") || userMsg.contains("种类")) {
             return toolCall("query_categories", Map.of());
         }
+        if (containsSalesRankIntent(userMsg)) {
+            return toolCall("query_dishes_sales_rank", Map.of());
+        }
         if (containsDishQueryIntent(userMsg)) {
             return toolCall("query_dishes", Map.of());
         }
@@ -230,6 +239,11 @@ public class AgentServiceImpl implements AgentService {
         String part = prompt.substring(marker + "用户最新提问：".length());
         int nextLine = part.indexOf('\n');
         return (nextLine >= 0 ? part.substring(0, nextLine) : part).trim();
+    }
+
+    private boolean containsSalesRankIntent(String userMsg) {
+        return userMsg.contains("销量") || userMsg.contains("畅销") || userMsg.contains("卖得最好")
+                || userMsg.contains("卖得好") || (userMsg.contains("排行") && userMsg.contains("榜"));
     }
 
     private boolean containsDishQueryIntent(String userMsg) {
@@ -353,6 +367,11 @@ public class AgentServiceImpl implements AgentService {
         }
         if (results.contains("未找到符合条件的菜品")) {
             return "抱歉，暂时没有符合您要求的菜品。您可以换个口味或告诉我具体菜名，我再帮您查。";
+        }
+        if (results.contains("销量排行榜")) {
+            int rankStart = results.indexOf("销量排行榜");
+            String rankList = results.substring(rankStart).trim();
+            return "根据销量为您整理如下：\n\n" + rankList + "\n\n如需下单，请直接说菜名和份数。";
         }
         int bodyStart = results.indexOf("找到 ");
         if (bodyStart < 0) {

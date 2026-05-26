@@ -4,7 +4,7 @@
 
 | Skill | 说明 |
 |-------|------|
-| [ai-ordering-dev](./ai-ordering-dev/SKILL.md) | 在本仓库内开发、调试 Agent / RAG / 飞书时的约定与命令 |
+| [ai-ordering-dev](./ai-ordering-dev/SKILL.md) | 在本仓库内开发、调试 Agent / RAG / 飞书时的约定与命令（含 6 个 Agent 工具说明） |
 
 ## 如何新增 Skill
 
