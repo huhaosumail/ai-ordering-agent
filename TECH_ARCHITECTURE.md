@@ -1,260 +1,263 @@
-# AI Ordering Agent — 技术分析与架构
+# 技术架构说明
 
-- [ ] 读取并分析项目关键文件（pom.xml、Application、配置、主要 controller/service/entity）
-- [ ] 总结技术栈与外部依赖
-- [ ] 绘制技术架构图（PlantUML + ASCII 备选）
-- [ ] 生成 README 目录（README.md 的目录结构建议）
-- [x] 将分析与图表写入文件（本文件）
+> 用户向入门请读 [README.md](./README.md)；本文为开发者架构与 API 参考。
 
 ---
 
-## 一、项目概览（简要）
+## 1. 系统概览
 
-该项目名为 `ai-ordering-agent`，是一个基于 Spring Boot（响应式 WebFlux）的智能点餐后端示例，包含：
+智能点餐后端采用**全链路响应式**栈：WebFlux 接入层、R2DBC 持久化、Reactor 组合异步调用；IO 密集的大模型与 Embedding 请求通过 OkHttp 在 `Mono.fromCallable` 中执行，避免阻塞 EventLoop。
 
-- REST API（Reactive WebFlux）
-- 响应式持久化（Spring Data R2DBC + H2 内存数据库）
-- AI 能力通过外部 LLM 服务（DeepSeek）实现，使用 OkHttp 调用 HTTP API
-- Reactor（Flux/Mono）贯穿业务逻辑
-- 模块化结构：controller -> service -> repository -> entity / dto
-- DataInitializer 在启动时创建表并注入示例数据
+```text
+Client / 飞书 / 前端
+        │
+        ▼
+  REST Controllers (WebFlux)
+        │
+        ├── AgentService ──► DeepSeek Chat API
+        │       ├── Tools (查菜/下单/语义检索)
+        │       └── RagService ──► EmbeddingService ──► bge-m3 / 方舟 / 本地向量
+        ├── AiOrderingService ──► DeepSeek
+        ├── Dish / Order / Category Services
+        └── OperationLogWebFilter
+        │
+        ▼
+  R2DBC Repositories ──► H2 (内存)
+```
 
+---
 
-## 二、技术栈
+## 2. 技术栈
 
-- 平台与语言：Java 21
-- 构建工具：Maven
-- 框架：Spring Boot 3.2.5
-  - spring-boot-starter-webflux（响应式 Web）
-  - spring-boot-starter-data-r2dbc（响应式 DB）
-  - spring-boot-starter-validation（校验）
-- 数据库：H2（内存），r2dbc-h2 驱动
-- HTTP 客户端：OkHttp（用于调用 DeepSeek）
-- JSON：Jackson (jackson-databind)
-- 反应式库：Project Reactor（Flux/Mono）
-- Lombok（可选、源码中以手写 Builder 形式存在）
-- 其他：Reactor Test、Spring Boot Test（测试依赖）
+| 层级 | 选型 | 说明 |
+|------|------|------|
+| 运行时 | Java 21 | LTS |
+| 框架 | Spring Boot 3.2.5 | WebFlux + Validation |
+| 数据库 | H2 + R2DBC | 演示用内存库；`schema.sql` 初始化 |
+| 对话 LLM | DeepSeek | `/chat/completions` |
+| 向量 | VikingDB bge-m3 / 火山方舟 | `/api/data/embedding/version/2` 或 `/embeddings` |
+| HTTP | OkHttp 4.12 | LLM、Embedding、飞书 |
+| 前端 | React 19 + Vite 8 | 见 [frontend/README.md](./frontend/README.md) |
+| Agent 辅助 | Cursor Skills | `.cursor/skills/ai-ordering-dev` |
 
-配置与运行：
-- `application.yml` 包含 AI 服务配置（ai.deepseek.api-key、base-url、model）以及 R2DBC URL（r2dbc:h2:mem:///orderdb）和 H2 控制台路径 (/h2-console)
+---
 
+## 3. 模块职责
 
-## 三、关键模块与责任
+### 3.1 Controller
 
-- Controller 层
-  - `AiOrderingController`：AI 解析点餐、基于 AI 创建订单、获取推荐
-  - `DishController`：菜品 CRUD / 列表 / 搜索 / 排行查询
-  - `CategoryController`：分类查询
-  - `OrderController`：订单创建/查询/修改/取消
+| 类 | 路径前缀 | 职责 |
+|----|----------|------|
+| `AgentController` | `/api/agent` | 多轮对话、会话管理 |
+| `RagController` | `/api/rag` | 向量检索、reindex、状态 |
+| `FeishuController` | `/api/feishu` | 飞书事件 Webhook（条件装配） |
+| `AiOrderingController` | `/api/ai` | 单次 LLM 解析/推荐 |
+| `DishController` / `OrderController` / `CategoryController` | `/api/*` | 业务 CRUD |
+| `OperationLogController` | `/api/logs` | 日志查询 |
 
-- Service 层
-  - `AiOrderingServiceImpl`：负责与 DeepSeek（外部 LLM）通信，解析自然语言为结构化订单，返回推荐文本
-  - `DishServiceImpl`：菜品领域逻辑（转换、校验、top-sales/top-rated）
-  - `OrderServiceImpl`：订单业务逻辑（计算金额、生成 orderNo、持久化并更新销量）
+### 3.2 Agent 与工具
 
-- Repository 层（响应式）
-  - `DishRepository`、`CategoryRepository`、`OrderRepository`：基于 `ReactiveCrudRepository`，并包含自定义 SQL 查询（@Query）
+- **`AgentServiceImpl`**：组装 Prompt（含 RAG 上下文）、调用 DeepSeek、解析 `<function>` 工具调用、执行工具、二次总结；含模拟模式与下单兜底。
+- **工具**（实现 `Tool` 接口）：
 
-- 配置/初始化
-  - `R2dbcConfig`：使用 ConnectionFactoryInitializer 加载 `schema.sql`
-  - `DataInitializer`：程序启动时使用 DatabaseClient 创建表并注入示例数据
+| 工具名 | 类 |
+|--------|-----|
+| `query_dishes` | `DishQueryTool` |
+| `semantic_search_dishes` | `SemanticDishSearchTool` |
+| `query_orders` | `OrderQueryTool` |
+| `query_categories` | `CategoryQueryTool` |
+| `create_order` | `CreateOrderTool` |
 
+工具调用格式：
 
-## 四、系统运行/调用流程（高层说明）
+```text
+<function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}]}'>
+```
 
-1. 客户端（Web/移动/外部）发起 HTTP 请求到本服务（例如 POST /api/ai/order/parse）
-2. Controller 接收请求并调用对应 Service（返回 Mono/Flux）
-3. `AiOrderingServiceImpl` 使用 OkHttp 调用 DeepSeek API（基于 application.yml 的配置），获取自然语言解析结果
-4. 将 LLM 返回的菜品名称映射到本地菜品（DishRepository.findByIsAvailableTrue）并组装 OrderRequest
-5. `OrderServiceImpl` 校验菜品、计算金额、生成订单号并通过 OrderRepository 保存
-6. 数据写入 H2（R2DBC），并在必要时更新 Dish 的 sales_count
+### 3.3 RAG 与向量
 
+| 类 | 职责 |
+|----|------|
+| `EmbeddingService` | 按 `ai.embedding.provider` 选择客户端 |
+| `DoubaoBgeM3EmbeddingClient` | VikingDB embedding v2，`model_name=bge-m3`，1024 维 |
+| `DoubaoArkEmbeddingClient` | 火山方舟 OpenAI 兼容 `/embeddings` |
+| `VectorStoreService` | `dish_embedding` 持久化 + 内存余弦检索 |
+| `DishVectorIndexService` | 菜品全文索引、增量更新 |
+| `RagService` | 检索、格式化 Agent 上下文 |
 
-## 五、架构图
+数据流：
 
-以下提供 PlantUML 格式（可直接在支持 PlantUML 的渲染器中渲染），同时给出 ASCII 备选图。
+```text
+dish 行 → 拼接索引文本 → embed → dish_embedding 表 + 内存 Map
+用户 query → embed → Top-K cosine → 注入 Prompt / 工具返回
+```
 
-PlantUML（复制到 PlantUML 渲染器或 VS Code PlantUML 插件）：
+### 3.4 飞书
+
+| 类 | 职责 |
+|----|------|
+| `FeishuController` | 接收 POST webhook |
+| `FeishuEventService` | 解密、校验、解析 `im.message.receive_v1`、异步调 Agent |
+| `FeishuClient` | `tenant_access_token` 缓存、回复消息 |
+| `FeishuCrypto` | 事件加解密 |
+
+会话 ID：`feishu:{chat_id}`，与 Web `sessionId` 隔离。
+
+### 3.5 基础设施
+
+- **`OperationLogWebFilter`**：记录 `/api/**` 请求，响应头 `X-Trace-Id`
+- **`DataInitializer`**：示例分类与菜品，完成后 `reindex` 向量
+- **`R2dbcConfig`**：执行 `schema.sql`（含 `dish_embedding`）
+
+---
+
+## 4. 架构图（PlantUML）
 
 ```plantuml
 @startuml
 skinparam componentStyle rectangle
-title AI Ordering Agent - Logical Architecture
+title AI Ordering Agent
 
-actor Client
+actor User
+actor Feishu
 
-package "API Layer (Reactive)" {
-  [REST Controllers]
-  Client --> [REST Controllers] : HTTP (JSON)
+package "API" {
+  [AgentController]
+  [RagController]
+  [FeishuController]
+  [Business Controllers]
 }
 
-package "Application Layer" {
-  [AiOrderingController]
-  [DishController]
-  [OrderController]
-  [CategoryController]
+package "Core" {
+  [AgentServiceImpl]
+  [RagService]
+  [EmbeddingService]
+  [Business Services]
 }
 
-package "Service Layer" {
-  [AiOrderingService]
-  [DishService]
-  [OrderService]
+package "Tools" {
+  [DishQueryTool]
+  [SemanticDishSearchTool]
+  [CreateOrderTool]
 }
 
-package "Persistence / DB" {
-  [R2DBC (H2)]
-  [DishRepository]
-  [OrderRepository]
-  [CategoryRepository]
-}
+database "H2 (R2DBC)" as DB
 
-package "External" {
-  [DeepSeek LLM API]
-}
+cloud "DeepSeek" as LLM
+cloud "Embedding API" as EMB
 
-[REST Controllers] --> [AiOrderingService]
-[REST Controllers] --> [DishService]
-[REST Controllers] --> [OrderService]
-
-[AiOrderingService] --> [DeepSeek LLM API] : HTTP (OkHttp)
-[AiOrderingService] --> [DishRepository]
-[DishService] --> [DishRepository]
-[OrderService] --> [OrderRepository]
-[OrderService] --> [DishRepository]
-
-[DishRepository] --> [R2DBC (H2)]
-[OrderRepository] --> [R2DBC (H2)]
-[CategoryRepository] --> [R2DBC (H2)]
-
-note right of [AiOrderingService]
-  - Uses Reactor (Mono/Flux)
-  - Calls LLM via OkHttp
-  - Parses JSON response (Jackson)
-end note
-
+User --> [AgentController]
+Feishu --> [FeishuController]
+[FeishuController] --> [AgentServiceImpl]
+[AgentController] --> [AgentServiceImpl]
+[AgentServiceImpl] --> LLM
+[AgentServiceImpl] --> [Tools]
+[AgentServiceImpl] --> [RagService]
+[RagService] --> [EmbeddingService]
+[EmbeddingService] --> EMB
+[Tools] --> [Business Services]
+[Business Services] --> DB
+[RagController] --> [RagService]
 @enduml
 ```
 
-ASCII 备选图：
+---
 
-Client --> REST Controllers (WebFlux)
-REST Controllers --> Services (AiOrdering / Dish / Order)
-AiOrderingService --> DeepSeek LLM (OkHttp)
-Services --> Repositories (R2DBC)
-Repositories --> H2 (r2dbc-h2)
+## 5. 配置说明
 
+密钥仅通过**环境变量**或 **`application-local.yml`**（gitignore）注入，见 [README.md#配置参考](./README.md)。
 
-## 六、关键配置点（摘录）
-
-- server.port: 8080
-- spring.r2dbc.url: r2dbc:h2:mem:///orderdb
-- H2 console: /h2-console
-- AI 配置：
-  - ai.deepseek.api-key
-  - ai.deepseek.base-url
-  - ai.deepseek.model
-
-
-## 七、README 建议目录（README.md 目录）
-
-1. 项目简介
-2. 快速开始
-   - 环境要求（Java 21、Maven）
-   - 本地运行（mvn spring-boot:run）
-   - 配置（如何替换 ai.deepseek.api-key / base-url）
-3. 架构概览
-   - 技术栈
-   - 架构图（PlantUML / ASCII）
-4. API 文档（主要端点）
-   - AI 相关
-     - POST /api/ai/order/parse
-     - POST /api/ai/order
-     - GET /api/ai/recommend
-   - 菜品
-     - GET /api/dishes
-     - GET /api/dishes/{id}
-     - POST /api/dishes
-     - PUT /api/dishes/{id}
-     - DELETE /api/dishes/{id}
-   - 分类
-     - GET /api/categories
-   - 订单
-     - POST /api/orders
-     - GET /api/orders/{id}
-     - GET /api/orders/no/{orderNo}
-     - GET /api/orders/user/{userId}
-     - PUT /api/orders/{id}/status
-     - DELETE /api/orders/{id}
-5. 数据模型（entity & DTO 简述）
-6. 数据库与迁移
-   - R2DBC + H2（内存）
-   - schema.sql 与 DataInitializer
-7. AI 集成说明
-   - DeepSeek API 调用流程
-   - prompt 模板位置（项目内字符串与 application.yml）
-   - 如何替换为其他 LLM（OpenAI / 本地模型）
-8. 安全与配置管理
-   - API Key 存放建议（环境变量 / Vault）
-9. 本地调试与测试
-   - H2 控制台访问
-   - 集成测试说明
-10. 扩展与改进建议
-    - 持久化到生产 DB（Postgres + r2dbc-postgresql）
-    - 引入缓存（Redis）
-    - 异步任务与事件（Kafka / RabbitMQ）
-    - 更健壮的 Prompt 管理与多轮对话支持
-11. 常见问题（FAQ）
-12. 许可证
-
-
-## 八、运行与测试建议（快速命令示例）
-
-注意：项目使用 Spring Boot + Maven，默认端口 8080
-
-启动：
-
-```bash
-mvn clean package
-mvn spring-boot:run
-```
-
-示例请求：
-
-解析自然语言点餐：
-
-```bash
-curl -X POST http://localhost:8080/api/ai/order/parse \
-  -H "Content-Type: application/json" \
-  -d '{"input":"我要一份宫保鸡丁和两份鱼香肉丝"}'
-```
-
-AI 创建订单（自动解析并创建）：
-
-```bash
-curl -X POST http://localhost:8080/api/ai/order \
-  -H "Content-Type: application/json" \
-  -d '{"input":"我要一份宫保鸡丁和两份鱼香肉丝", "userId": 1001, "tableNo": "A1"}'
-```
-
-访问 H2 控制台： http://localhost:8080/h2-console （JDBC URL 对应：jdbc:h2:mem:orderdb）
-
-
-## 九、改进建议（非必要但推荐）
-
-- 将 AI API Key 从 `application.yml` 移到环境变量或机密管理系统
-- 将 H2 替换为生产数据库（Postgres/MySQL + r2dbc 驱动）并引入 Flyway/liquibase
-- 对 LLM 调用做更完善的错误/重试策略和限流
-- 对 AI 理解结果做召回/相似度匹配（例如基于名称的模糊匹配改为向量/embedding 检索）
-- 为关键接口增加契约测试和更多集成测试
-
+| 前缀 | 用途 |
+|------|------|
+| `ai.deepseek.*` | Agent / AiOrdering 对话 |
+| `ai.embedding.*` | RAG 向量化（provider: `doubao-bge-m3` \| `doubao-ark` \| `openai`） |
+| `rag.*` | 开关、top-k、min-score、是否注入 Prompt |
+| `feishu.*` | 飞书机器人 |
+| `agent.ordering.*` | 模拟模式、记忆条数、Prompt |
 
 ---
 
-文件生成于项目根目录：`TECH_ARCHITECTURE.md`
+## 6. API 端点汇总
 
-如果需要，我可以：
-- 将本文件合并到 `README.md` 或生成一个独立的 `ARCHITECTURE.puml`（PlantUML）文件
-- 为 README 各章节生成初始内容（例如完整的 API 文档段落）
-- 将 AI Key 支持改为读取环境变量并更新 `application.yml` 示例
+### Agent
 
-欢迎告诉我接下来要做的步骤。
+| 方法 | 路径 |
+|------|------|
+| POST | `/api/agent/chat` |
+| GET | `/api/agent/session/{id}/messages` |
+| GET | `/api/agent/session/{id}/summary` |
+| DELETE | `/api/agent/session/{id}` |
+
+### RAG
+
+| 方法 | 路径 |
+|------|------|
+| GET | `/api/rag/search?q=` |
+| GET | `/api/rag/search/text?q=` |
+| GET | `/api/rag/status` |
+| POST | `/api/rag/reindex` |
+
+### 飞书
+
+| 方法 | 路径 |
+|------|------|
+| POST | `/api/feishu/webhook` |
+
+### AI（非会话）
+
+| 方法 | 路径 |
+|------|------|
+| POST | `/api/ai/order/parse` |
+| POST | `/api/ai/order` |
+| GET | `/api/ai/recommend` |
+
+### 业务
+
+| 资源 | 基础路径 |
+|------|----------|
+| 菜品 | `/api/dishes` |
+| 订单 | `/api/orders` |
+| 分类 | `/api/categories` |
+| 日志 | `/api/logs` |
+
+---
+
+## 7. 数据模型（核心表）
+
+| 表 | 说明 |
+|----|------|
+| `dish` | 菜品 |
+| `orders` | 订单（items 为 JSON CLOB） |
+| `chat_history` | Agent 多轮消息 |
+| `dish_embedding` | 菜品向量（`embedding_json`） |
+| `operation_log` | 请求与 AI 调用日志 |
+
+---
+
+## 8. Cursor Skills
+
+项目 Skill 位于 `.cursor/skills/`：
+
+- **`ai-ordering-dev`**：本地启动、密钥、RAG/Agent/飞书调试、新增 Tool 步骤
+
+详见 [.cursor/skills/README.md](./.cursor/skills/README.md)。
+
+---
+
+## 9. 扩展建议
+
+| 方向 | 建议 |
+|------|------|
+| 数据库 | H2 → PostgreSQL + pgvector 或外接 Milvus |
+| 密钥 | 环境变量 / Vault；禁止明文进 Git |
+| LLM | 流式 SSE 返回；重试与限流 |
+| 飞书 | 卡片消息、群 @ 解析 |
+| 测试 | Agent 工具契约测试、RAG 召回集成测试 |
+
+---
+
+## 10. 相关文档
+
+- [README.md](./README.md) — 快速开始与配置
+- [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md) — 历史讨论
+- [frontend/README.md](./frontend/README.md) — 前端

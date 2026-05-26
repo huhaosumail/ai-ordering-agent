@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# 点餐小助手前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+本目录为 **AI Ordering Agent** 的 React 聊天界面，通过 Vite 开发服务器将 `/api` 代理到后端 `http://localhost:8080`。
 
-Currently, two official plugins are available:
+> 项目总览与后端配置见仓库根目录 [README.md](../README.md)。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 技术栈
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19 + TypeScript  
+- Vite 8  
+- 主要页面：`src/components/ChatApp.tsx`  
+- API 封装：`src/api/agent.ts`  
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 开发
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 前置条件
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+后端已启动（默认 `8080`），且已配置 `AI_DEEPSEEK_API_KEY`（或 `SPRING_PROFILES_ACTIVE=local`）。
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 安装与启动
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+浏览器打开：**http://localhost:5173**
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 代理
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+`vite.config.ts` 将 `/api` 转发到 `http://localhost:8080`，无需在前端配置 CORS。
+
+---
+
+## 构建与 Docker
+
+```bash
+npm run build          # 产出 dist/
 ```
+
+仓库根目录 `docker compose up` 会使用 `frontend/Dockerfile` + nginx，对外端口 **3000**。
+
+---
+
+## 与 Agent 的交互
+
+- 使用 `localStorage` 保存 `sessionId`，多轮对话走后端 `POST /api/agent/chat`  
+- 清空会话可刷新页面或调用后端 `DELETE /api/agent/session/{id}`  
+
+---
+
+## 相关文档
+
+- [../README.md](../README.md)  
+- [../TECH_ARCHITECTURE.md](../TECH_ARCHITECTURE.md)  
