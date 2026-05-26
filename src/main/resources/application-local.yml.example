@@ -1,5 +1,7 @@
 # 复制为 application-local.yml（已 gitignore）后填入密钥
+# cp application-local.yml.example application-local.yml
 # mvn spring-boot:run -Dspring-boot.run.profiles=local
+# 文档：README.md
 
 ai:
   deepseek:

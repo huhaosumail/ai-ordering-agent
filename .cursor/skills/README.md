@@ -1,15 +1,15 @@
 # 项目 Cursor Skills
 
-本目录存放**仓库级** Agent Skills，克隆项目后 Cursor 可自动发现（路径：`.cursor/skills/<skill-name>/SKILL.md`）。
+仓库级 Agent Skills，路径 `.cursor/skills/<name>/SKILL.md`，克隆后 Cursor 可自动发现。
 
 | Skill | 说明 |
 |-------|------|
-| [ai-ordering-dev](./ai-ordering-dev/SKILL.md) | 在本仓库内开发、调试 Agent / RAG / 飞书时的约定与命令（含 6 个 Agent 工具说明） |
+| [ai-ordering-dev](./ai-ordering-dev/SKILL.md) | 本仓库后端/RAG/Agent/飞书开发与调试（6 工具、方舟 multimodal） |
 
-## 如何新增 Skill
+## 新增 Skill
 
-1. 新建目录：`.cursor/skills/<skill-name>/`
-2. 添加 `SKILL.md`（YAML frontmatter + 正文），参考 [create-skill](https://cursor.com/docs) 或仓库内 `ai-ordering-dev` 示例
-3. 在本表登记一行说明
+1. 新建 `.cursor/skills/<skill-name>/SKILL.md`（含 YAML frontmatter）  
+2. 参考 `ai-ordering-dev` 或 [Cursor 文档](https://cursor.com/docs)  
+3. 在本表增加一行  
 
-个人全局 Skill 请放在 `~/.cursor/skills/`，不要写入 `~/.cursor/skills-cursor/`。
+个人全局 Skill：`~/.cursor/skills/`（勿写 `~/.cursor/skills-cursor/`）。

@@ -1,28 +1,31 @@
 # 技术架构说明
 
-> 用户向入门请读 [README.md](./README.md)；本文为开发者架构与 API 参考。
+> 入门与配置：[README.md](./README.md)  
+> 本文：模块划分、RAG/Agent 调用链、API 与数据模型。
 
 ---
 
 ## 1. 系统概览
 
-智能点餐后端采用**全链路响应式**栈：WebFlux 接入层、R2DBC 持久化、Reactor 组合异步调用；IO 密集的大模型与 Embedding 请求通过 OkHttp 在 `Mono.fromCallable` 中执行，避免阻塞 EventLoop。
+后端为**全链路响应式**：WebFlux 接入、R2DBC 访问 H2、Reactor 编排；DeepSeek / 方舟 Embedding / 飞书等外部 IO 在 `Mono.fromCallable` + OkHttp 中执行，避免阻塞 Netty EventLoop。
 
 ```text
-Client / 飞书 / 前端
+Client / 飞书 / frontend
         │
         ▼
   REST Controllers (WebFlux)
         │
-        ├── AgentService ──► DeepSeek Chat API
-        │       ├── Tools (查菜/销量榜/语义检索/下单)
-        │       └── RagService ──► EmbeddingService ──► 火山方舟 Ark /embeddings
+        ├── AgentServiceImpl ──► DeepSeek /v1/chat/completions
+        │       ├── 6× Tool
+        │       └── RagService ──► EmbeddingService ──► Ark
+        │                              ├── /embeddings
+        │                              └── /embeddings/multimodal
         ├── AiOrderingService ──► DeepSeek
         ├── Dish / Order / Category Services
-        └── OperationLogWebFilter
+        └── OperationLogWebFilter (X-Trace-Id)
         │
         ▼
-  R2DBC Repositories ──► H2 (内存)
+  R2DBC ──► H2 内存库 (schema.sql)
 ```
 
 ---
@@ -32,36 +35,43 @@ Client / 飞书 / 前端
 | 层级 | 选型 | 说明 |
 |------|------|------|
 | 运行时 | Java 21 | LTS |
-| 框架 | Spring Boot 3.2.5 | WebFlux + Validation |
-| 数据库 | H2 + R2DBC | 演示用内存库；`schema.sql` 初始化 |
-| 对话 LLM | DeepSeek | `/chat/completions` |
-| 向量 | 火山方舟 Ark | `POST .../api/v3/embeddings`，`model=ep-xxx` |
-| HTTP | OkHttp 4.12 | LLM、Embedding、飞书 |
-| 前端 | React 19 + Vite 8 | 见 [frontend/README.md](./frontend/README.md) |
-| Agent 辅助 | Cursor Skills | `.cursor/skills/ai-ordering-dev` |
+| 框架 | Spring Boot 3.2.5 | WebFlux、Validation、`@ConfigurationProperties` |
+| 数据库 | H2 + R2DBC | 演示；`R2dbcConfig` 执行 `schema.sql` |
+| 对话 | DeepSeek | OpenAI 兼容 Chat API |
+| 向量 | 火山方舟 Ark | `ep-xxx` 接入点；支持 multimodal |
+| HTTP 客户端 | OkHttp 4.12 | LLM、Embedding、飞书 |
+| 前端 | React 19 + Vite 8 | [frontend/README.md](./frontend/README.md) |
+| 开发辅助 | Cursor Skills | `.cursor/skills/ai-ordering-dev` |
 
 ---
 
 ## 3. 模块职责
 
-### 3.1 Controller
+### 3.1 Controller 层
 
-| 类 | 路径前缀 | 职责 |
-|----|----------|------|
-| `AgentController` | `/api/agent` | 多轮对话、会话管理 |
-| `RagController` | `/api/rag` | 向量检索、reindex、状态 |
-| `FeishuController` | `/api/feishu` | 飞书事件 Webhook（条件装配） |
-| `AiOrderingController` | `/api/ai` | 单次 LLM 解析/推荐 |
-| `DishController` / `OrderController` / `CategoryController` | `/api/*` | 业务 CRUD |
-| `OperationLogController` | `/api/logs` | 日志查询 |
+| 类 | 前缀 | 职责 |
+|----|------|------|
+| `AgentController` | `/api/agent` | 多轮对话、会话 CRUD |
+| `RagController` | `/api/rag` | 检索、reindex、status |
+| `FeishuController` | `/api/feishu` | Webhook（`@ConditionalOnProperty`） |
+| `AiOrderingController` | `/api/ai` | 单次 LLM 解析/下单/推荐 |
+| `DishController` | `/api/dishes` | 菜品 CRUD、top-sales、top-rated |
+| `OrderController` | `/api/orders` | 订单 |
+| `CategoryController` | `/api/categories` | 分类 |
+| `OperationLogController` | `/api/logs` | 日志查询、统计 |
 
 ### 3.2 Agent 与工具
 
-- **`AgentServiceImpl`**：组装 Prompt（含 RAG 上下文）、调用 DeepSeek、解析 `<function>` 工具调用、执行工具、二次总结；含模拟模式与下单兜底。
-- **工具**（实现 `Tool` 接口）：
+**`AgentServiceImpl`** 主流程：
 
-| 工具名 | 类 |
-|--------|-----|
+1. 加载 `chat_history`（最近 N 条）  
+2. `RagService.buildAgentContext` 注入 RAG 块（可关）  
+3. 调用 DeepSeek；解析 `<function name="..." params='...'>`  
+4. 执行 `Tool`，将结果写回 Prompt 再总结（或 `summarizeToolResults` 兜底）  
+5. 持久化 assistant 消息  
+
+| 工具名 | 实现类 |
+|--------|--------|
 | `query_dishes` | `DishQueryTool` |
 | `query_dishes_sales_rank` | `DishSalesRankTool` |
 | `semantic_search_dishes` | `SemanticDishSearchTool` |
@@ -69,61 +79,79 @@ Client / 飞书 / 前端
 | `query_categories` | `CategoryQueryTool` |
 | `create_order` | `CreateOrderTool` |
 
-**`DishSalesRankTool`（`query_dishes_sales_rank`）**
+**模拟模式**（`agent.ordering.simulation-mode=true`）：无有效 DeepSeek Key 时，按关键词触发工具（含销量、辣味、下单意图）。
 
-- 数据源：`DishRepository.findTopSales(limit)`，`WHERE is_available = true ORDER BY sales_count DESC`
-- 参数：`limit`（可选，默认 10，上限 20）
-- 与 REST `GET /api/dishes/top-sales` 同源查询逻辑（REST 固定 Top 10，经 `DishService.getTopSales()`）
-- 模拟模式：`AgentServiceImpl.containsSalesRankIntent` 识别「销量 / 畅销 / 卖得最好 / 排行榜」等关键词
-
-工具调用格式：
+工具调用示例：
 
 ```text
-<function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}]}'>
+<function name="semantic_search_dishes" params='{"query":"辣的下饭"}'>
 <function name="query_dishes_sales_rank" params='{"limit":5}'>
+<function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}]}'>
 ```
 
 ### 3.3 RAG 与向量库
 
-**存储形态**：H2 表 `dish_embedding`（JSON 向量）+ `VectorStoreService` 内存 `ConcurrentHashMap`，检索为全量余弦相似度（非 Milvus/pgvector）。
+**存储**：`dish_embedding` 表 + `VectorStoreService` 内存索引；检索为**全量余弦**（适合演示规模，非 ANN）。
 
 | 类 | 职责 |
 |----|------|
-| `EmbeddingService` | 仅 `doubao-ark`；封装方舟 embed 与可选 `fallback-local` |
-| `DoubaoArkEmbeddingClient` | `POST {baseUrl}/embeddings`，Bearer `ARK_API_KEY`，`model=ep-xxx` |
-| `VectorStoreService` | upsert / reload / similaritySearch |
-| `DishVectorIndexService` | 菜品索引文本、reindexAll、增量 indexDish |
-| `RagService` | retrieve、formatSearchResult、Agent 上下文注入 |
+| `EmbeddingService` | 固定 `doubao-ark`；`embed()` + 可选 `localEmbed` 兜底 |
+| `DoubaoArkEmbeddingClient` | `multimodal=false` → `/embeddings`；`true` → `/embeddings/multimodal`（文本 `{type:text}`） |
+| `DishVectorIndexService` | `buildIndexText` → embed → upsert；`reindexAll` |
+| `VectorStoreService` | delete+insert upsert、`reloadFromDatabase`、`similaritySearch` |
+| `RagService` | `retrieve`、`formatSearchResult`、`buildAgentContext` |
 
-数据流：
+**索引文本格式**（`VectorStoreService.buildContentText`）：
 
 ```text
-dish 行 → 拼接索引文本 → 方舟 embed → dish_embedding + 内存 Map
-用户 query → 方舟 embed → Top-K cosine (min-score) → Prompt / semantic_search_dishes
+菜名:宫保鸡丁
+分类:中式菜肴
+描述:经典川菜...
+价格:38.00元
 ```
 
-`GET /api/rag/status` 返回：`embeddingProvider`、`embeddingEndpoint`、`indexedCount`、`vectorStore`。
+**`DishEmbedding`** 实现 `Persistable<Long>`，配合 upsert 时 delete 后 insert，避免 R2DBC 误 UPDATE。
 
-### 3.4 飞书
+**`GET /api/rag/status` 字段**：`enabled`、`indexedCount`、`embeddingProvider`、`embeddingEndpoint`、`embeddingConfigured`、`embeddingMultimodal`、`vectorStore`。
+
+### 3.4 飞书集成
 
 | 类 | 职责 |
 |----|------|
-| `FeishuController` | 接收 POST webhook |
-| `FeishuEventService` | 解密、校验、解析 `im.message.receive_v1`、异步调 Agent |
-| `FeishuClient` | `tenant_access_token` 缓存、回复消息 |
-| `FeishuCrypto` | 事件加解密 |
+| `FeishuController` | POST `/webhook` |
+| `FeishuEventService` | 校验 token、解密、解析 `im.message.receive_v1` |
+| `FeishuClient` | 获取 `tenant_access_token`、回复消息 |
+| `FeishuCrypto` | 可选事件加解密 |
 
-会话 ID：`feishu:{chat_id}`，与 Web `sessionId` 隔离。
+会话隔离：`sessionId = feishu:{chat_id}`，复用 `AgentService.chat()`。
 
 ### 3.5 基础设施
 
-- **`OperationLogWebFilter`**：记录 `/api/**` 请求，响应头 `X-Trace-Id`
-- **`DataInitializer`**：示例分类与菜品，完成后 `reindex` 向量
-- **`R2dbcConfig`**：执行 `schema.sql`（含 `dish_embedding`）
+| 组件 | 说明 |
+|------|------|
+| `DataInitializer` | 示例分类/菜品 → `dishVectorIndexService.reindexAll()` |
+| `OperationLogWebFilter` | 记录 `/api/**`，写 `operation_log` |
+| `GlobalExceptionHandler` | 统一 `ApiResponse` 错误体 |
+| `DishServiceImpl` | 菜品变更后 `indexDish` 增量更新向量 |
 
 ---
 
-## 4. 架构图（PlantUML）
+## 4. Agent + RAG 时序（概念）
+
+```text
+User → POST /api/agent/chat
+  → load history
+  → RagService.buildAgentContext(query)     [可选]
+  → DeepSeek(system + tools + history + RAG)
+  → parse <function> …
+  → Tool.execute (e.g. SemanticDishSearchTool → RagService)
+  → DeepSeek 总结 or summarizeToolResults
+  → save chat_history
+```
+
+---
+
+## 5. 架构图（PlantUML）
 
 ```plantuml
 @startuml
@@ -154,15 +182,14 @@ package "Tools" {
   [CreateOrderTool]
 }
 
-database "H2 (R2DBC)" as DB
-
+database "H2" as DB
 cloud "DeepSeek" as LLM
-cloud "Embedding API" as EMB
+cloud "Volcengine Ark" as EMB
 
 User --> [AgentController]
 Feishu --> [FeishuController]
-[FeishuController] --> [AgentServiceImpl]
 [AgentController] --> [AgentServiceImpl]
+[FeishuController] --> [AgentServiceImpl]
 [AgentServiceImpl] --> LLM
 [AgentServiceImpl] --> [Tools]
 [AgentServiceImpl] --> [RagService]
@@ -176,103 +203,99 @@ Feishu --> [FeishuController]
 
 ---
 
-## 5. 配置说明
+## 6. 配置说明
 
-密钥仅通过**环境变量**或 **`application-local.yml`**（gitignore）注入，见 [README.md#配置参考](./README.md)。
+密钥通过**环境变量**或 **`application-local.yml`**（gitignore）注入。
 
 | 前缀 | 用途 |
 |------|------|
-| `ai.deepseek.*` | Agent / AiOrdering 对话 |
-| `ai.embedding.*` | RAG 向量化（仅火山方舟 `doubao-ark`，`ARK_API_KEY` + `ep-xxx`） |
-| `rag.*` | 开关、top-k、min-score、是否注入 Prompt |
-| `feishu.*` | 飞书机器人 |
-| `agent.ordering.*` | 模拟模式、记忆条数、Prompt |
+| `ai.deepseek.*` | Agent / AiOrdering |
+| `ai.embedding.*` | `provider=doubao-ark`、`api-key`、`model`(ep)、`multimodal`、`fallback-local` |
+| `rag.*` | `enabled`、`top-k`、`min-score`、`inject-to-agent-prompt` |
+| `feishu.*` | 机器人开关与凭证 |
+| `agent.ordering.*` | `simulation-mode`、`memory.max-history-messages` |
 
 ---
 
-## 6. API 端点汇总
+## 7. API 端点汇总
 
-### Agent
-
-| 方法 | 路径 |
-|------|------|
-| POST | `/api/agent/chat` |
-| GET | `/api/agent/session/{id}/messages` |
-| GET | `/api/agent/session/{id}/summary` |
-| DELETE | `/api/agent/session/{id}` |
-
-### RAG
+### Agent — `/api/agent`
 
 | 方法 | 路径 |
 |------|------|
-| GET | `/api/rag/search?q=` |
-| GET | `/api/rag/search/text?q=` |
-| GET | `/api/rag/status` |
-| POST | `/api/rag/reindex` |
+| POST | `/chat` |
+| GET | `/session/{id}/messages` |
+| GET | `/session/{id}/summary` |
+| DELETE | `/session/{id}` |
 
-### 飞书
-
-| 方法 | 路径 |
-|------|------|
-| POST | `/api/feishu/webhook` |
-
-### AI（非会话）
+### RAG — `/api/rag`
 
 | 方法 | 路径 |
 |------|------|
-| POST | `/api/ai/order/parse` |
-| POST | `/api/ai/order` |
-| GET | `/api/ai/recommend` |
+| GET | `/search?q=` |
+| GET | `/search/text?q=` |
+| GET | `/status` |
+| POST | `/reindex` |
+
+### 飞书 — `/api/feishu`
+
+| 方法 | 路径 |
+|------|------|
+| POST | `/webhook` |
+
+### AI（非会话）— `/api/ai`
+
+| 方法 | 路径 |
+|------|------|
+| POST | `/order/parse` |
+| POST | `/order` |
+| GET | `/recommend` |
 
 ### 业务
 
-| 资源 | 基础路径 |
-|------|----------|
-| 菜品 | `/api/dishes` |
-| 菜品销量榜 | `GET /api/dishes/top-sales` |
-| 菜品评分榜 | `GET /api/dishes/top-rated` |
+| 资源 | 路径 |
+|------|------|
+| 菜品 | `/api/dishes`，`/top-sales`，`/top-rated` |
 | 订单 | `/api/orders` |
 | 分类 | `/api/categories` |
-| 日志 | `/api/logs` |
+| 日志 | `/api/logs`，`/logs/stats`，`/logs/trace/{traceId}` |
 
 ---
 
-## 7. 数据模型（核心表）
+## 8. 数据模型（核心表）
 
 | 表 | 说明 |
 |----|------|
-| `dish` | 菜品 |
-| `orders` | 订单（items 为 JSON CLOB） |
+| `category` | 分类 |
+| `dish` | 菜品（含 `sales_count`、`rating`） |
+| `orders` | 订单，`items` 为 JSON CLOB |
+| `order_item` | 订单明细（结构保留） |
 | `chat_history` | Agent 多轮消息 |
-| `dish_embedding` | 菜品向量（`embedding_json`） |
-| `operation_log` | 请求与 AI 调用日志 |
+| `dish_embedding` | 向量：`dish_id` PK、`embedding_json`、`dimension` |
+| `operation_log` | 请求日志 |
 
 ---
 
-## 8. Cursor Skills
+## 9. Cursor Skills
 
-项目 Skill 位于 `.cursor/skills/`：
-
-- **`ai-ordering-dev`**：本地启动、密钥、RAG/Agent/飞书调试、新增 Tool 步骤
-
-详见 [.cursor/skills/README.md](./.cursor/skills/README.md)。
+`.cursor/skills/ai-ordering-dev`：本地启动、方舟 multimodal 配置、RAG/Agent curl、新增 Tool 步骤。
 
 ---
 
-## 9. 扩展建议
+## 10. 扩展建议
 
 | 方向 | 建议 |
 |------|------|
-| 数据库 | H2 → PostgreSQL + pgvector 或外接 Milvus |
-| 密钥 | 环境变量 / Vault；禁止明文进 Git |
-| LLM | 流式 SSE 返回；重试与限流 |
-| 飞书 | 卡片消息、群 @ 解析 |
-| 测试 | Agent 工具契约测试、RAG 召回集成测试 |
+| 向量库 | H2+内存 → PostgreSQL pgvector / Milvus；ANN 索引 |
+| Embedding | 图片 URL 入 multimodal input；批量 embed |
+| LLM | SSE 流式输出；重试与限流 |
+| 飞书 | 卡片消息、富文本 |
+| 测试 | Ark 集成测试（`@EnabledIfEnvironmentVariable`）；工具契约测试 |
 
 ---
 
-## 10. 相关文档
+## 11. 相关文档
 
-- [README.md](./README.md) — 快速开始与配置
-- [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md) — 历史讨论
-- [frontend/README.md](./frontend/README.md) — 前端
+- [README.md](./README.md)
+- [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md)
+- [frontend/README.md](./frontend/README.md)
