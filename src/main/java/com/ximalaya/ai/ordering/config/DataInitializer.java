@@ -4,6 +4,7 @@ import com.ximalaya.ai.ordering.entity.Category;
 import com.ximalaya.ai.ordering.entity.Dish;
 import com.ximalaya.ai.ordering.repository.CategoryRepository;
 import com.ximalaya.ai.ordering.repository.DishRepository;
+import com.ximalaya.ai.ordering.service.DishVectorIndexService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -20,10 +21,14 @@ public class DataInitializer implements CommandLineRunner {
 
     private final CategoryRepository categoryRepository;
     private final DishRepository dishRepository;
+    private final DishVectorIndexService dishVectorIndexService;
 
-    public DataInitializer(CategoryRepository categoryRepository, DishRepository dishRepository) {
+    public DataInitializer(CategoryRepository categoryRepository,
+                           DishRepository dishRepository,
+                           DishVectorIndexService dishVectorIndexService) {
         this.categoryRepository = categoryRepository;
         this.dishRepository = dishRepository;
+        this.dishVectorIndexService = dishVectorIndexService;
     }
 
     @Override
@@ -46,8 +51,9 @@ public class DataInitializer implements CommandLineRunner {
                         Dish.builder().name("提拉米苏").description("意大利经典甜点").price(new BigDecimal("28.00")).category("甜点饮品").imageUrl("https://example.com/tiramisu.jpg").isAvailable(true).salesCount(520).rating(new BigDecimal("4.9")).ratingCount(155).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build(),
                         Dish.builder().name("芒果布丁").description("清爽可口，果香浓郁").price(new BigDecimal("18.00")).category("甜点饮品").imageUrl("https://example.com/mango.jpg").isAvailable(true).salesCount(450).rating(new BigDecimal("4.7")).ratingCount(130).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build()
                 ).flatMap(dishRepository::save))
-                .doOnComplete(() -> log.info("Sample data loaded: 3 categories, 8 dishes"))
-                .doOnError(e -> log.error("Sample data load failed: {}", e.getMessage(), e))
+                .then(dishVectorIndexService.reindexAll())
+                .doOnSuccess(v -> log.info("Sample data loaded: 3 categories, 8 dishes + vector index"))
+                .doOnError(e -> log.error("Sample data or vector index failed: {}", e.getMessage(), e))
                 .subscribe();
     }
 }

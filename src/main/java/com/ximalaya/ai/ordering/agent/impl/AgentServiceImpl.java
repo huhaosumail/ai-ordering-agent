@@ -5,7 +5,9 @@ import com.ximalaya.ai.ordering.agent.tool.CategoryQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.CreateOrderTool;
 import com.ximalaya.ai.ordering.agent.tool.DishQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.OrderQueryTool;
+import com.ximalaya.ai.ordering.agent.tool.SemanticDishSearchTool;
 import com.ximalaya.ai.ordering.agent.tool.Tool;
+import com.ximalaya.ai.ordering.service.RagService;
 import com.ximalaya.ai.ordering.service.impl.ChatMemoryServiceImpl;
 import com.ximalaya.ai.ordering.service.OperationLogService;
 import com.ximalaya.ai.ordering.util.OperationLogHelper;
@@ -44,12 +46,14 @@ public class AgentServiceImpl implements AgentService {
             你是一个智能点餐助手，你可以使用工具来查询菜品、订单和分类信息。
             
             可用工具：
-            1. query_dishes - 查询菜品信息
+            1. query_dishes - 按关键词/分类精确查询菜品
                参数：keyword(可选) - 菜品名称关键词；category(可选) - 分类名称
-            2. query_orders - 查询订单信息
+            2. semantic_search_dishes - 按语义/口味/场景向量检索（RAG）
+               参数：query(必填) - 如「辣的」「下饭」「清淡」「适合约会」
+            3. query_orders - 查询订单信息
                参数：orderNo(可选) - 订单号；userId(可选) - 用户ID；status(可选) - 订单状态
-            3. query_categories - 查询所有分类
-            4. create_order - 创建订单（用户明确要点菜、下单时使用）
+            4. query_categories - 查询所有分类
+            5. create_order - 创建订单（用户明确要点菜、下单时使用）
                参数：items(必填) - [{\"name\":\"菜品名\",\"quantity\":数量}]；userId(可选)；tableNo(可选)；remark(可选)
                示例：用户说「麻婆豆腐三份」「两份宫保鸡丁」时必须调用 create_order，不要只回复问候语。
             
@@ -61,21 +65,29 @@ public class AgentServiceImpl implements AgentService {
             
             思考过程：你需要根据用户的问题判断是否需要调用工具。如果需要调用工具，请输出工具调用；如果不需要，可以直接回答用户。
             
+            当用户用口味/场景/模糊描述找菜时，优先使用 semantic_search_dishes；已知菜名时用 query_dishes。
+            系统可能附带【RAG 检索到的相关菜品】上下文，请结合使用。
+            
             当收到工具执行结果后，请用自然、友好的语言总结给用户。
             """;
+
+    private final RagService ragService;
 
     public AgentServiceImpl(ChatMemoryServiceImpl chatMemoryService,
                            OperationLogService operationLogService,
                            DishQueryTool dishQueryTool,
+                           SemanticDishSearchTool semanticDishSearchTool,
                            OrderQueryTool orderQueryTool,
                            CategoryQueryTool categoryQueryTool,
                            CreateOrderTool createOrderTool,
+                           RagService ragService,
                            @Value("${ai.deepseek.api-key}") String apiKey,
                            @Value("${ai.deepseek.base-url}") String baseUrl,
                            @Value("${ai.deepseek.model}") String model,
                            @Value("${agent.ordering.simulation-mode:false}") boolean simulationMode) {
         this.chatMemoryService = chatMemoryService;
         this.operationLogService = operationLogService;
+        this.ragService = ragService;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.model = model;
@@ -85,7 +97,8 @@ public class AgentServiceImpl implements AgentService {
                 .readTimeout(java.time.Duration.ofSeconds(60))
                 .writeTimeout(java.time.Duration.ofSeconds(30))
                 .build();
-        this.tools = Arrays.asList(dishQueryTool, orderQueryTool, categoryQueryTool, createOrderTool);
+        this.tools = Arrays.asList(
+                dishQueryTool, semanticDishSearchTool, orderQueryTool, categoryQueryTool, createOrderTool);
     }
 
     @Override
@@ -94,17 +107,24 @@ public class AgentServiceImpl implements AgentService {
 
         return chatMemoryService.addUserMessage(sessionId, userInput, userId)
                 .then(chatMemoryService.getMessagesForLlm(sessionId, MAX_HISTORY_MESSAGES))
-                .flatMap(messages -> {
-                    String prompt = buildPrompt(messages, userInput);
-                    return Mono.fromCallable(() -> callDeepSeekWithTools(prompt, userId))
-                            .flatMap(response -> processResponse(sessionId, response, userId, userInput));
-                });
+                .flatMap(messages -> buildPrompt(messages, userInput)
+                        .flatMap(prompt -> Mono.fromCallable(() -> callDeepSeekWithTools(prompt, userId))
+                                .flatMap(response -> processResponse(sessionId, response, userId, userInput))));
     }
 
-    private String buildPrompt(List<Map<String, String>> history, String currentInput) {
+    private Mono<String> buildPrompt(List<Map<String, String>> history, String currentInput) {
+        return ragService.buildAgentContext(currentInput)
+                .map(ctx -> assemblePrompt(history, currentInput, ctx));
+    }
+
+    private String assemblePrompt(List<Map<String, String>> history, String currentInput, String ragContext) {
         StringBuilder prompt = new StringBuilder();
         prompt.append(SYSTEM_PROMPT).append("\n\n");
-        
+
+        if (ragContext != null && !ragContext.isBlank()) {
+            prompt.append(ragContext).append("\n");
+        }
+
         prompt.append("对话历史：\n");
         for (Map<String, String> message : history) {
             prompt.append(message.get("role")).append(": ").append(message.get("content")).append("\n");
@@ -112,7 +132,7 @@ public class AgentServiceImpl implements AgentService {
         
         prompt.append("\n用户最新提问：").append(currentInput).append("\n");
         prompt.append("\n请根据对话历史和用户当前提问，决定是否调用工具。如需调用工具，请输出工具调用格式；如不需要，直接回答用户。");
-        
+
         return prompt.toString();
     }
 
@@ -183,8 +203,9 @@ public class AgentServiceImpl implements AgentService {
             return toolCall("create_order", orderParams.get());
         }
 
-        if (userMsg.contains("辣") || userMsg.contains("麻辣")) {
-            return toolCall("query_dishes", Map.of("keyword", "辣"));
+        if (userMsg.contains("辣") || userMsg.contains("麻辣") || userMsg.contains("推荐")
+                || userMsg.contains("好吃") || userMsg.contains("口味")) {
+            return toolCall("semantic_search_dishes", Map.of("query", userMsg));
         }
         if (userMsg.contains("宫保鸡丁") || userMsg.contains("鸡丁")) {
             return toolCall("query_dishes", Map.of("keyword", "宫保鸡丁"));

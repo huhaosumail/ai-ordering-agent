@@ -28,11 +28,23 @@ ai:
     api-key: ${AI_DEEPSEEK_API_KEY:sk-9dd346e5f5a6498998cb932a146959f1}
     base-url: ${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
     model: ${AI_DEEPSEEK_MODEL:deepseek-chat}
+  embedding:
+    api-key: ${AI_EMBEDDING_API_KEY:${AI_DEEPSEEK_API_KEY:}}
+    base-url: ${AI_EMBEDDING_BASE_URL:${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}}
+    model: ${AI_EMBEDDING_MODEL:text-embedding-ada-002}
+    dimensions: ${AI_EMBEDDING_DIMENSIONS:256}
+    fallback-local: ${AI_EMBEDDING_FALLBACK_LOCAL:true}
+
+rag:
+  enabled: ${RAG_ENABLED:true}
+  top-k: ${RAG_TOP_K:5}
+  min-score: ${RAG_MIN_SCORE:0.35}
+  inject-to-agent-prompt: ${RAG_INJECT_TO_AGENT:true}
 
 feishu:
   enabled: ${FEISHU_ENABLED:false}
-  app-id: ${FEISHU_APP_ID:}
-  app-secret: ${FEISHU_APP_SECRET:}
+  app-id: ${FEISHU_APP_ID:cli_aa9944c201fa1cb5}
+  app-secret: ${FEISHU_APP_SECRET:TTbOdh9ZOcb8NKOM7JD9EfkJ4zlzChLB}
   verification-token: ${FEISHU_VERIFICATION_TOKEN:}
   encrypt-key: ${FEISHU_ENCRYPT_KEY:}
   base-url: ${FEISHU_BASE_URL:https://open.feishu.cn}

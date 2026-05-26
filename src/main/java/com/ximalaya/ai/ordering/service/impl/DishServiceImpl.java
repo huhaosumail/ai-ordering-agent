@@ -5,6 +5,7 @@ import com.ximalaya.ai.ordering.dto.response.DishResponse;
 import com.ximalaya.ai.ordering.entity.Dish;
 import com.ximalaya.ai.ordering.repository.DishRepository;
 import com.ximalaya.ai.ordering.service.DishService;
+import com.ximalaya.ai.ordering.service.DishVectorIndexService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,9 +21,12 @@ public class DishServiceImpl implements DishService {
     private static final Logger log = LoggerFactory.getLogger(DishServiceImpl.class);
 
     private final DishRepository dishRepository;
+    private final DishVectorIndexService dishVectorIndexService;
 
-    public DishServiceImpl(DishRepository dishRepository) {
+    public DishServiceImpl(DishRepository dishRepository,
+                           DishVectorIndexService dishVectorIndexService) {
         this.dishRepository = dishRepository;
+        this.dishVectorIndexService = dishVectorIndexService;
     }
 
     @Override
@@ -92,6 +96,7 @@ public class DishServiceImpl implements DishService {
                 .build();
 
         return dishRepository.save(dish)
+                .flatMap(saved -> dishVectorIndexService.indexDish(saved).thenReturn(saved))
                 .map(this::toResponse)
                 .doOnSuccess(response -> log.info("菜品创建成功, id={}", response.getId()));
     }
@@ -111,6 +116,7 @@ public class DishServiceImpl implements DishService {
                     existing.setUpdatedAt(LocalDateTime.now());
                     return dishRepository.save(existing);
                 })
+                .flatMap(saved -> dishVectorIndexService.indexDish(saved).thenReturn(saved))
                 .map(this::toResponse);
     }
 
@@ -119,7 +125,7 @@ public class DishServiceImpl implements DishService {
         log.info("删除菜品, id={}", id);
         return dishRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("菜品不存在: " + id)))
-                .flatMap(dishRepository::delete);
+                .flatMap(dish -> dishVectorIndexService.removeDishIndex(dish.getId()).then(dishRepository.delete(dish)));
     }
 
     private DishResponse toResponse(Dish dish) {

@@ -50,12 +50,47 @@
 | 工具 | 说明 |
 |------|------|
 | `query_dishes` | 按关键词/分类查菜品 |
+| `semantic_search_dishes` | **RAG** 语义/口味/场景向量检索 |
 | `query_orders` | 查订单 |
 | `query_categories` | 查分类 |
 | `create_order` | 按菜名+数量创建订单 |
 
+- **RAG 增强**: 对话前自动检索相关菜品注入 Prompt；模糊描述（如「辣的」「下饭」）优先走向量检索  
 - **会话 API**: 聊天、消息列表、摘要、清除会话  
 - **兜底机制**: API 失败或模型未返回工具调用时，本地解析下单意图（如「麻婆豆腐 三份」「三份麻婆豆腐」）并执行 `create_order`  
+
+### RAG 与向量检索（`/api/rag`）
+
+菜品向量化后存入 `dish_embedding` 表，内存索引 + 余弦相似度检索。
+
+| 能力 | 说明 |
+|------|------|
+| **向量索引** | 启动加载示例菜后自动 `reindex`；菜品增删改后自动更新向量 |
+| **Embedding** | 优先调用 OpenAI 兼容 `/embeddings`；失败时本地哈希向量兜底 |
+| **Agent 注入** | `rag.inject-to-agent-prompt=true` 时在对话 Prompt 附带 Top-K 相关菜品 |
+| **语义工具** | Agent 可调用 `semantic_search_dishes`，参数 `query` |
+| **管理 API** | 检索、重建索引、查看索引状态 |
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/rag/search?q=` | 向量检索（JSON，含 score） |
+| GET | `/api/rag/search/text?q=` | 向量检索（可读文本） |
+| GET | `/api/rag/status` | 索引条数、是否启用 |
+| POST | `/api/rag/reindex` | 全量重建向量索引 |
+
+```yaml
+rag:
+  enabled: true
+  top-k: 5
+  min-score: 0.35
+  inject-to-agent-prompt: true
+
+ai:
+  embedding:
+    api-key: ${AI_EMBEDDING_API_KEY:${AI_DEEPSEEK_API_KEY:}}
+    model: text-embedding-ada-002   # 可换为实际支持的 embedding 模型
+    fallback-local: true            # API 不可用时本地向量
+```
 
 ### 飞书机器人（`/api/feishu`，可选）
 
@@ -243,6 +278,13 @@ curl -X POST http://localhost:8080/api/agent/chat \
   -d '{"sessionId":"demo-1","message":"有什么辣的菜推荐？"}'
 ```
 
+### RAG：语义找菜
+
+```bash
+curl "http://localhost:8080/api/rag/search/text?q=辣的下饭"
+curl -X POST http://localhost:8080/api/rag/reindex
+```
+
 ### Agent：自然语言下单
 
 支持多种说法，例如：
@@ -313,10 +355,14 @@ ai-ordering-agent/
 │   ├── controller/
 │   │   ├── AgentController.java
 │   │   └── FeishuController.java        # POST /api/feishu/webhook
-│   ├── feishu/
-│   │   ├── FeishuEventService.java      # 事件解析、Agent 编排、快捷指令
-│   │   ├── FeishuClient.java            # token 缓存、消息回复
-│   │   └── FeishuCrypto.java            # 事件加解密
+│   ├── feishu/                  # 飞书回调与 Open API
+│   ├── vector/                  # 余弦相似度、ScoredDocument
+│   ├── service/
+│   │   ├── EmbeddingService.java        # 文本向量化
+│   │   ├── VectorStoreService.java      # 向量存储与检索
+│   │   ├── RagService.java              # RAG 上下文组装
+│   │   └── DishVectorIndexService.java  # 菜品索引维护
+│   ├── controller/RagController.java
 │   ├── service/                 # 业务 + ChatMemory + AiOrdering
 │   ├── config/
 │   │   ├── DataInitializer.java # 示例数据（须在 java 目录下）
@@ -357,6 +403,19 @@ ai-ordering-agent/
 ```text
 <function name="create_order" params='{"items":[{"name":"麻婆豆腐","quantity":3}],"userId":1}'>
 ```
+
+## RAG / 向量库架构
+
+```
+菜品 dish → 拼接索引文本（名/分类/描述/价格）
+        → EmbeddingService（API 或本地向量）
+        → dish_embedding 表 + 内存索引
+用户提问 → 查询向量化 → Top-K 余弦相似度
+        → 注入 Agent Prompt / semantic_search_dishes 工具
+        → DeepSeek 结合检索结果回答或下单
+```
+
+生产环境可将 H2 换为 Postgres + pgvector，或对接 Milvus/Qdrant，当前实现为**嵌入式向量库**（H2 持久化 + 内存检索），适合演示与中小菜单。
 
 ## 飞书接入架构
 
@@ -402,6 +461,8 @@ FeishuController → FeishuEventService
 | 飞书提示加密错误 | 控制台开启加密但未配 Key | 设置 `FEISHU_ENCRYPT_KEY` 与控制台 Encrypt Key 一致 |
 | 飞书回调 404 | 未启用飞书模块 | `feishu.enabled` 必须为 `true` 并重启 |
 | 本地无法收飞书事件 | 飞书要求公网 HTTPS | 使用 ngrok：`ngrok http 8080`，将 HTTPS 地址配到事件订阅 |
+| 语义检索无结果 | 索引未建立或分数过低 | `POST /api/rag/reindex`；调低 `rag.min-score` |
+| Embedding API 失败 | 模型不支持 / Key 无效 | 保持 `ai.embedding.fallback-local=true` 使用本地向量 |
 
 ## 相关文档
 
