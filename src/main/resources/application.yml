@@ -34,6 +34,7 @@ ai:
     api-key: ${AI_EMBEDDING_API_KEY:${ARK_API_KEY:}}
     base-url: ${AI_EMBEDDING_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
     model: ${AI_EMBEDDING_MODEL:}
+    multimodal: ${AI_EMBEDDING_MULTIMODAL:false}
     dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
     fallback-local: ${AI_EMBEDDING_FALLBACK_LOCAL:false}
 

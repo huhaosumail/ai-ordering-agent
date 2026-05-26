@@ -15,6 +15,12 @@ public class EmbeddingProperties {
     /** 方舟控制台创建的 Embedding 推理接入点 ID，如 ep-xxx */
     private String model = "";
 
+    /**
+     * true：调用 /embeddings/multimodal（doubao-embedding-vision 等接入点）
+     * false：调用 /embeddings（纯文本 Embedding 接入点）
+     */
+    private boolean multimodal = false;
+
     /** 本地 fallback 向量维度（仅 fallback-local=true 时使用） */
     private int dimensions = 1024;
     private boolean fallbackLocal = false;
@@ -49,6 +55,14 @@ public class EmbeddingProperties {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public boolean isMultimodal() {
+        return multimodal;
+    }
+
+    public void setMultimodal(boolean multimodal) {
+        this.multimodal = multimodal;
     }
 
     public int getDimensions() {

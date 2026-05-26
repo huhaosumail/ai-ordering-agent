@@ -159,7 +159,7 @@ docker compose up --build -d
 
 | 层级 | 类 / 表 | 职责 |
 |------|---------|------|
-| **向量化 API** | `DoubaoArkEmbeddingClient` | 调用 `https://ark.cn-beijing.volces.com/api/v3/embeddings`，`model` 填控制台接入点 ID |
+| **向量化 API** | `DoubaoArkEmbeddingClient` | 文本：`/embeddings`；视觉向量：`/embeddings/multimodal`（`multimodal=true`） |
 | **编排** | `EmbeddingService` | 仅支持 `doubao-ark`；未配置 Key/ep 时默认报错（可开 `fallback-local`） |
 | **索引** | `DishVectorIndexService` | 菜品名+描述+分类拼文本 → embed → upsert |
 | **存储** | `dish_embedding` 表 | H2 存 JSON 向量与元数据；启动 `reloadFromDatabase()` |
@@ -177,7 +177,8 @@ docker compose up --build -d
 | 变量 / 配置 | 说明 |
 |-------------|------|
 | `ARK_API_KEY` / `ai.embedding.api-key` | 方舟 API Key（形如 `apikey-...`） |
-| `AI_EMBEDDING_MODEL` / `ai.embedding.model` | Embedding 推理接入点，如 `ep-20260526153248-chdn7` |
+| `AI_EMBEDDING_MODEL` / `ai.embedding.model` | Embedding 推理接入点 `ep-xxx` |
+| `AI_EMBEDDING_MULTIMODAL` | `true` 时使用 `/embeddings/multimodal`（**doubao-embedding-vision** 接入点必填） |
 | `AI_EMBEDDING_BASE_URL` | 默认 `https://ark.cn-beijing.volces.com/api/v3` |
 | `AI_EMBEDDING_FALLBACK_LOCAL` | 默认 `false`；`true` 时 API 失败用本地哈希向量（仅开发兜底） |
 | `rag.enabled` / `rag.top-k` / `rag.min-score` | 检索开关与阈值 |

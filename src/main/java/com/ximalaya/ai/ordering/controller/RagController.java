@@ -64,6 +64,7 @@ public class RagController {
                         "embeddingProvider", embeddingProperties.getProvider(),
                         "embeddingEndpoint", embeddingProperties.getModel(),
                         "embeddingConfigured", embeddingProperties.isConfigured(),
+                        "embeddingMultimodal", embeddingProperties.isMultimodal(),
                         "vectorStore", "h2-dish_embedding+memory"
                 ))));
     }

@@ -9,4 +9,7 @@ ai:
     api-key: ${ARK_API_KEY:}
     base-url: https://ark.cn-beijing.volces.com/api/v3
     model: ${AI_EMBEDDING_MODEL:}
+    # vision 接入点（doubao-embedding-vision）需 multimodal: true
+    multimodal: ${AI_EMBEDDING_MULTIMODAL:false}
+    dimensions: 2048
     fallback-local: false
