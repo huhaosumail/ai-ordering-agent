@@ -23,7 +23,7 @@
 | 后端 API | Java 21 · WebFlux · R2DBC · H2 | `8080` |
 | 聊天前端 | React 19 · Vite 8 | `5173`（dev）/ `3000`（Docker） |
 | 对话 LLM | DeepSeek Chat | `ai.deepseek.*` |
-| 向量/RAG | 火山方舟 Ark（`ep-xxx`） | `ai.embedding.*` · `ARK_API_KEY` |
+| 向量/RAG | 方舟算向量 + `dish_embedding` 存搜 | `ARK_API_KEY` · `ep-xxx` |
 | 飞书（可选） | 事件订阅 Webhook | `feishu.enabled=true` |
 
 **典型对话路径**
@@ -131,7 +131,26 @@ docker compose up --build -d
 
 ## 向量库与 RAG 技术架构
 
-本项目**不依赖** Milvus / pgvector，采用 **H2 表 `dish_embedding` + 进程内余弦相似度** 的轻量向量库；向量化由**火山方舟**完成。
+本项目**不依赖** Milvus / pgvector 等外置向量数据库，而是 **「方舟负责算向量 + 本地 `dish_embedding` 负责存和搜」** 的两层结构。
+
+### 本地向量库 vs 火山方舟：各自做什么？
+
+很多人会把 `dish_embedding` 和「向量大模型」混在一起，其实职责不同：
+
+| 角色 | 是什么 | 在本项目里 | 类比 |
+|------|--------|------------|------|
+| **火山方舟 Embedding** | 云端**向量化模型**（把文字变成一串数字） | 调用 `ep-xxx` 接入点，返回 `float[]`（如 2048 维） | 「翻译官」：把「辣的下饭」译成坐标 |
+| **`dish` 表** | 业务数据（菜名、描述、价格等） | 人类可读的菜品主数据 | 菜单正文 |
+| **`dish_embedding` 表** | **向量仓库**（只存已算好的向量） | `embedding_json` + 内存 Map，查询时做余弦相似度 | 「图书馆索引卡」：存坐标，按距离找相近 |
+
+**方舟在什么时候被调用？**
+
+1. **建索引（写库）**：每道菜拼一段索引文本 → 调方舟 → 得到向量 → 写入 `dish_embedding`（`POST /api/rag/reindex` 或启动时自动执行）。  
+2. **检索（读库）**：用户问题同样调方舟 → 得到 query 向量 → 与库里各菜向量算 cosine → 取 Top-K。
+
+因此：**方舟不是向量数据库**，也不会替你持久化或检索；**`dish_embedding` 不是大模型**，里面没有语义理解能力，只有数字和相似度计算。二者必须配套使用，且索引与查询最好用**同一套**方舟接入点，向量才在同一语义空间里可比。
+
+**DeepSeek** 仍只负责 Agent **对话与工具决策**，与方舟 Embedding **密钥、计费、接口均独立**。
 
 ### 架构总览
 
@@ -255,16 +274,95 @@ curl -s "http://localhost:8080/api/logs?module=AGENT&page=0&size=20"
 
 ## 评估体系
 
-项目内置 **黄金集（Golden Set）+ 指标 + API + 自动化测试**，用于持续衡量 RAG 检索与 Agent 意图路由质量。
+项目内置 **黄金集（Golden Set）+ 指标计算 + HTTP 触发 + JUnit**，用来回答两类问题：
+
+- 改完 RAG / 换方舟接入点后，**该搜到的菜还能搜到吗？**
+- 模拟模式下，**用户说法能否路由到正确的 Agent 工具？**
+
+（**不**自动评估 DeepSeek 真实对话质量，那属于 LLM 评测，需另接 Judge 或人工。）
+
+### 黄金集整体架构
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│  classpath:eval/                                                         │
+│    rag-golden.json          agent-intent-golden.json                     │
+│    (query + 期望菜品)        (用户话术 + 期望工具名)                          │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ EvalDatasetLoader 启动时加载
+                                ▼
+                    ┌───────────────────────┐
+                    │   EvaluationService    │
+                    │  POST /api/eval/run      │
+                    └───────────┬─────────────┘
+            ┌───────────────────┴───────────────────┐
+            ▼                                       ▼
+   ┌─────────────────┐                   ┌──────────────────────┐
+   │ RagEvaluation    │                   │ AgentIntentEvaluation │
+   │ Runner           │                   │ Runner                │
+   └────────┬─────────┘                   └──────────┬───────────┘
+            │ 可选先 reindexAll                     │
+            ▼                                       ▼
+   RagService.retrieve(query)            AgentIntentMatcher.match(message)
+            │                                       │
+            ▼                                       ▼
+   对比 expectedDishes                    对比 expectedTool
+   算 Hit@K / Recall@K / MRR              算 passRate（准确率）
+            │                                       │
+            └───────────────────┬───────────────────┘
+                                ▼
+                         EvalReport
+                    (rag 套件 + agent-intent 套件)
+```
+
+**数据流（RAG 单条用例）**
+
+```text
+用例: query="辣的下饭", expectedDishes=["麻婆豆腐","鱼香肉丝",...]
+  → embed(query)           # 仍走方舟（或测试时 fallback-local）
+  → similaritySearch     # 读 dish_embedding + 内存索引
+  → 得到 Top-K 菜名列表
+  → EvalMetrics 判断：是否命中、召回率、MRR
+```
+
+**数据流（Agent 意图单条用例）**
+
+```text
+用例: message="销量最高的菜", expectedTool="query_dishes_sales_rank"
+  → AgentIntentMatcher.match()   # 与模拟模式同一套规则
+  → 实际工具名 == 期望工具名 → pass/fail
+```
 
 ### 评估范围
 
-| 套件 | 数据集 | 指标 | 说明 |
-|------|--------|------|------|
-| **rag** | `eval/rag-golden.json` | Hit@K、Recall@K、MRR | 语义检索是否召回期望菜品 |
-| **agent-intent** | `eval/agent-intent-golden.json` | 准确率 | 模拟模式工具路由（`AgentIntentMatcher`） |
+| 套件 | 数据集 | 指标 | 测的是什么 |
+|------|--------|------|------------|
+| **rag** | `eval/rag-golden.json` | Hit@K、Recall@K、MRR | **检索链路**：方舟 embed + `dish_embedding` 相似度 |
+| **agent-intent** | `eval/agent-intent-golden.json` | passRate（准确率） | **规则路由**：`AgentIntentMatcher`（非 DeepSeek） |
 
-> LLM 端到端对话评估需外接人工或第三方 Judge，当前未纳入自动化（可后续扩展）。
+### 黄金集文件格式（示例）
+
+**RAG**（`rag-golden.json`）：
+
+```json
+{
+  "id": "rag-spicy",
+  "query": "辣的下饭",
+  "expectedDishes": ["麻婆豆腐", "鱼香肉丝", "宫保鸡丁"],
+  "topK": 5,
+  "minRecall": 0.33
+}
+```
+
+**Agent 意图**（`agent-intent-golden.json`）：
+
+```json
+{
+  "id": "intent-sales",
+  "message": "销量最高的菜有哪些",
+  "expectedTool": "query_dishes_sales_rank"
+}
+```
 
 ### 运行方式
 

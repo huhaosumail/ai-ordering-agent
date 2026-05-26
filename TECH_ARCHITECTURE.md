@@ -91,7 +91,19 @@ Client / 飞书 / frontend
 
 ### 3.3 RAG 与向量库
 
-**存储**：`dish_embedding` 表 + `VectorStoreService` 内存索引；检索为**全量余弦**（适合演示规模，非 ANN）。
+#### 3.3.1 方舟 Embedding vs 本地 `dish_embedding`
+
+| 层次 | 技术 | 职责 |
+|------|------|------|
+| **向量化（Encoder）** | 火山方舟 `ep-xxx` | 文本/多模态 → `float[]`；**无状态 API**，不存数据 |
+| **业务数据** | H2 `dish` | 菜名、描述、价格等结构化字段 |
+| **向量存储与检索** | H2 `dish_embedding` + `VectorStoreService` | 存 `embedding_json`；启动 `reload` 到内存；查询时**全量余弦**（演示规模，非 ANN） |
+
+索引与查询各调一次方舟，保证 query 向量与菜品向量在同一模型空间；算出的向量落地到 `dish_embedding`，检索不再访问方舟以外的向量服务。
+
+`ai.embedding.fallback-local=true` 时方舟失败会用本地哈希向量，仅适合 CI/离线，**不能**与真实方舟向量混用同一索引。
+
+#### 3.3.2 实现类
 
 | 类 | 职责 |
 |----|------|
@@ -285,16 +297,57 @@ Feishu --> [FeishuController]
 
 ## 9. 评估体系
 
+评估体系与 RAG/Agent **运行时代码解耦**：黄金集放在 `resources/eval/`，通过 Runner 调用真实 `RagService` / `AgentIntentMatcher`，避免「测 mock、线上挂」。
+
+### 9.1 架构分层
+
+```text
+[ 黄金集 JSON ]  →  EvalDatasetLoader
+                           │
+              EvaluationService.run(suite, reindex?)
+                    /                    \
+         RagEvaluationRunner      AgentIntentEvaluationRunner
+                    │                    │
+            RagService.retrieve    AgentIntentMatcher.match
+         (方舟 embed + dish_embedding)   (规则，非 LLM)
+                    │                    │
+              EvalMetrics            工具名比对
+                    \                    /
+                      EvalReport (EvalSuiteResult × 2)
+```
+
+### 9.2 组件职责
+
 | 组件 | 职责 |
 |------|------|
-| `EvalDatasetLoader` | 加载 `classpath:eval/*.json` |
-| `RagEvaluationRunner` | Hit@K、Recall@K、MRR |
-| `AgentIntentEvaluationRunner` | 工具名准确率 |
-| `EvaluationService` | 编排 reindex + 套件执行 |
-| `EvalController` | HTTP 触发与说明 |
-| `AgentIntentMatcher` / `OrderIntentParser` | 与模拟模式共用，保证可测 |
+| `eval/rag-golden.json` | RAG 用例：`query`、`expectedDishes`、`topK`、`minRecall` |
+| `eval/agent-intent-golden.json` | 意图用例：`message`、`expectedTool` |
+| `EvalDatasetLoader` | 反序列化黄金集 |
+| `RagEvaluationRunner` | 逐条 `retrieve` → Hit@K、Recall@K、MRR |
+| `AgentIntentEvaluationRunner` | 逐条 `match` → 准确率 |
+| `EvaluationService` | 可选 `reindexAll` 后跑 RAG；组装 `EvalReport` |
+| `EvalController` | `POST /api/eval/run`、`GET /api/eval/info` |
+| `AgentIntentMatcher` / `OrderIntentParser` | 从 `AgentServiceImpl` 抽出，评估与模拟模式同源 |
 
-配置：`eval.enabled`、`eval.reindex-before-rag`。
+### 9.3 指标含义（RAG）
+
+| 指标 | 含义 |
+|------|------|
+| **Hit@K** | Top-K 结果里是否出现至少一个 `expectedDishes` |
+| **Recall@K** | `expectedDishes` 中有多少比例出现在 Top-K |
+| **MRR** | 第一个命中期望菜的排名的倒数（套件 `aggregateScore` 取平均） |
+
+单条通过条件：`Hit@K == true` 且 `Recall@K >= minRecall`（用例可配，默认 0.5）。
+
+### 9.4 边界说明
+
+| 纳入评估 | 未纳入 |
+|----------|--------|
+| 向量检索召回（含方舟 + `dish_embedding`） | DeepSeek 工具选择、回复文案 |
+| 模拟模式工具路由规则 | 飞书、下单事务、REST CRUD |
+| | 端到端对话满意度 |
+
+配置：`eval.enabled`、`eval.reindex-before-rag`。测试：`EvaluationIntegrationTest`、`mvn test`。
 
 ---
 

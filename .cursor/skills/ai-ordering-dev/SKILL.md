@@ -16,7 +16,7 @@ description: >-
 | 后端 | Java 21, Boot 3.2 WebFlux, R2DBC+H2, `:8080` |
 | 前端 | `frontend/`, Vite `:5173`, `/api` → 8080 |
 | 对话 | `AgentServiceImpl`, `ai.deepseek.*` |
-| 向量 | `DoubaoArkEmbeddingClient`, `dish_embedding`+内存 cosine |
+| 向量 | 方舟算向量；`dish_embedding` 存+搜（见 README） |
 | 飞书 | `feishu.enabled=true`, `POST /api/feishu/webhook` |
 
 ## 密钥（勿提交 Git）
@@ -60,14 +60,16 @@ curl -X POST http://localhost:8080/api/agent/chat \
   -d '{"sessionId":"dev-1","message":"销量最高的菜？"}'
 ```
 
-## 评估
+## 评估（黄金集）
+
+- 数据：`src/main/resources/eval/rag-golden.json`、`agent-intent-golden.json`
+- RAG 测检索；agent-intent 测 `AgentIntentMatcher`（非 DeepSeek）
+- 架构见 [README#评估体系](../../../README.md#评估体系)
 
 ```bash
 mvn test
 curl -s -X POST "http://localhost:8080/api/eval/run?suite=all"
 ```
-
-黄金集：`src/main/resources/eval/`。
 
 ## 菜品变更
 

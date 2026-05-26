@@ -53,7 +53,8 @@
 ## 讨论后已落地能力
 
 - **Agent**：`AgentServiceImpl` + 6 个 Tool（含 `semantic_search_dishes`、`query_dishes_sales_rank`）  
-- **RAG**：`dish_embedding` + 内存余弦检索；方舟 `ep-xxx`；vision 接入点需 `multimodal=true`  
+- **RAG**：方舟负责向量化，`dish_embedding` 负责存向量与检索；vision 接入点需 `multimodal=true`  
+- **评估**：黄金集 + `/api/eval`（RAG 召回 + Agent 意图路由）  
 - **飞书**：`im.message.receive_v1`，会话 `feishu:{chat_id}`  
 - **可观测**：`operation_log`、`X-Trace-Id`  
 - **工程化**：Docker Compose、Cursor Skill `ai-ordering-dev`、文档体系（README / TECH_ARCHITECTURE）  
