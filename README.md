@@ -66,7 +66,7 @@
 | 能力 | 说明 |
 |------|------|
 | **向量索引** | 启动加载示例菜后自动 `reindex`；菜品增删改后自动更新向量 |
-| **Embedding** | 优先调用 OpenAI 兼容 `/embeddings`；失败时本地哈希向量兜底 |
+| **Embedding** | 默认 **豆包 bge-m3**（VikingDB embedding v2，1024 维）；可选火山方舟 `doubao-ark`；失败时本地向量兜底 |
 | **Agent 注入** | `rag.inject-to-agent-prompt=true` 时在对话 Prompt 附带 Top-K 相关菜品 |
 | **语义工具** | Agent 可调用 `semantic_search_dishes`，参数 `query` |
 | **管理 API** | 检索、重建索引、查看索引状态 |
@@ -87,9 +87,36 @@ rag:
 
 ai:
   embedding:
-    api-key: ${AI_EMBEDDING_API_KEY:${AI_DEEPSEEK_API_KEY:}}
-    model: text-embedding-ada-002   # 可换为实际支持的 embedding 模型
-    fallback-local: true            # API 不可用时本地向量
+    provider: doubao-bge-m3
+    api-key: ${VIKINGDB_EMBEDDING_TOKEN}
+    host: https://api-vikingdb.vikingdb.cn-beijing.volces.com
+    model-name: bge-m3
+    dimensions: 1024
+    fallback-local: true
+```
+
+**与 DeepSeek 的关系**：`ai.deepseek` 仅负责 Agent **对话**；`ai.embedding` 仅负责 **向量化**，API Key 与模型互不影响。
+
+#### 豆包 bge-m3（默认）
+
+在 [VikingDB Embedding v2 文档](https://www.volcengine.com/docs/84313/1254554) 开通服务并获取 Token：
+
+```bash
+export AI_EMBEDDING_PROVIDER=doubao-bge-m3
+export VIKINGDB_EMBEDDING_TOKEN=你的EmbeddingToken
+export VIKINGDB_EMBEDDING_HOST=https://api-vikingdb.vikingdb.cn-beijing.volces.com
+export AI_EMBEDDING_DIMENSIONS=1024
+export AI_DEEPSEEK_API_KEY=你的DeepSeek密钥   # 仅聊天
+curl -X POST http://localhost:8080/api/rag/reindex
+```
+
+#### 火山方舟 Embedding（可选）
+
+```bash
+export AI_EMBEDDING_PROVIDER=doubao-ark
+export AI_EMBEDDING_API_KEY=你的方舟APIKey
+export AI_EMBEDDING_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+export AI_EMBEDDING_MODEL=ep-xxxxxxxxxx
 ```
 
 ### 飞书机器人（`/api/feishu`，可选）
@@ -408,7 +435,7 @@ ai-ordering-agent/
 
 ```
 菜品 dish → 拼接索引文本（名/分类/描述/价格）
-        → EmbeddingService（API 或本地向量）
+        → EmbeddingService（豆包 bge-m3 / 方舟 / 本地兜底）
         → dish_embedding 表 + 内存索引
 用户提问 → 查询向量化 → Top-K 余弦相似度
         → 注入 Agent Prompt / semantic_search_dishes 工具
@@ -462,7 +489,8 @@ FeishuController → FeishuEventService
 | 飞书回调 404 | 未启用飞书模块 | `feishu.enabled` 必须为 `true` 并重启 |
 | 本地无法收飞书事件 | 飞书要求公网 HTTPS | 使用 ngrok：`ngrok http 8080`，将 HTTPS 地址配到事件订阅 |
 | 语义检索无结果 | 索引未建立或分数过低 | `POST /api/rag/reindex`；调低 `rag.min-score` |
-| Embedding API 失败 | 模型不支持 / Key 无效 | 保持 `ai.embedding.fallback-local=true` 使用本地向量 |
+| Embedding API 失败 | Token/Host 错误或模型未开通 | 核对 `VIKINGDB_EMBEDDING_TOKEN`、地域 Host；或改 `doubao-ark`；保持 `fallback-local=true` |
+| 切换 bge-m3 后检索异常 | 向量维度变化 | `POST /api/rag/reindex` 全量重建索引 |
 
 ## 相关文档
 

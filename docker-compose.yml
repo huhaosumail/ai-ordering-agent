@@ -8,6 +8,10 @@ services:
       - AI_DEEPSEEK_API_KEY=${AI_DEEPSEEK_API_KEY:-}
       - AI_DEEPSEEK_BASE_URL=${AI_DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       - AI_DEEPSEEK_MODEL=${AI_DEEPSEEK_MODEL:-deepseek-chat}
+      - ARK_API_KEY=${ARK_API_KEY:-}
+      - AI_EMBEDDING_PROVIDER=${AI_EMBEDDING_PROVIDER:-doubao-bge-m3}
+      - AI_EMBEDDING_BASE_URL=${AI_EMBEDDING_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      - AI_EMBEDDING_MODEL=${AI_EMBEDDING_MODEL:-}
       - FEISHU_ENABLED=${FEISHU_ENABLED:-false}
       - FEISHU_APP_ID=${FEISHU_APP_ID:-}
       - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}

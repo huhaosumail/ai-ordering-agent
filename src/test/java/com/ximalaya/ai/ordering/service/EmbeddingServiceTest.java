@@ -11,7 +11,8 @@ class EmbeddingServiceTest {
     @Test
     void localEmbed_similarTextsHaveHigherSimilarity() {
         EmbeddingProperties props = new EmbeddingProperties();
-        props.setDimensions(256);
+        props.setProvider("openai");
+        props.setDimensions(1024);
         EmbeddingService service = new EmbeddingService(props);
 
         float[] spicy = service.localEmbed("麻辣鲜香 下饭");

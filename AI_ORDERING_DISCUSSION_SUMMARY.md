@@ -106,7 +106,7 @@ curl -X POST http://localhost:8080/api/ai/order/parse \
 ```yaml
 ai:
   deepseek:
-    api-key: sk-9dd346e5f5a6498998cb932a146959f1
+    api-key: ${AI_DEEPSEEK_API_KEY:}
     base-url: https://api.deepseek.com/v1
     model: deepseek-chat
 ```
