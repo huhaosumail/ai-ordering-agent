@@ -31,7 +31,8 @@ public class DishVectorIndexService {
     public Mono<Void> reindexAll() {
         log.info("开始全量重建菜品向量索引...");
         return dishRepository.findByIsAvailableTrue()
-                .flatMap(this::indexDish)
+                .flatMap(dish -> embedAndSave(dish, buildIndexText(dish),
+                        embeddingService.contentHash(buildIndexText(dish))))
                 .then(vectorStoreService.reloadFromDatabase())
                 .doOnSuccess(v -> log.info("菜品向量索引重建完成, size={}", vectorStoreService.indexSize()));
     }

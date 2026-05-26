@@ -29,20 +29,13 @@ ai:
     base-url: ${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
     model: ${AI_DEEPSEEK_MODEL:deepseek-chat}
   embedding:
-    # doubao-bge-m3 | doubao-ark | openai
-    provider: ${AI_EMBEDDING_PROVIDER:doubao-bge-m3}
-    api-key: ${AI_EMBEDDING_API_KEY:${ARK_API_KEY:${VIKINGDB_EMBEDDING_TOKEN:}}}
-    # doubao-ark：火山方舟 API Key（与 DeepSeek 无关）
-    # doubao-bge-m3：VikingDB 控制台 Embedding Token（Authorization: token=xxx）
+    # 向量仅走火山方舟 OpenAI 兼容 /embeddings（接入点 ep-xxx）
+    provider: doubao-ark
+    api-key: ${AI_EMBEDDING_API_KEY:${ARK_API_KEY:}}
     base-url: ${AI_EMBEDDING_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
     model: ${AI_EMBEDDING_MODEL:}
-    host: ${VIKINGDB_EMBEDDING_HOST:https://api-vikingdb.vikingdb.cn-beijing.volces.com}
-    model-name: ${AI_EMBEDDING_MODEL_NAME:bge-m3}
     dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
-    embedding-dimension: ${AI_EMBEDDING_OUTPUT_DIM:0}
-    return-dense: true
-    return-sparse: false
-    fallback-local: ${AI_EMBEDDING_FALLBACK_LOCAL:true}
+    fallback-local: ${AI_EMBEDDING_FALLBACK_LOCAL:false}
 
 rag:
   enabled: ${RAG_ENABLED:true}

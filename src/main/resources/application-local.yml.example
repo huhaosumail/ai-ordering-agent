@@ -1,0 +1,12 @@
+# 复制为 application-local.yml（已 gitignore）后填入密钥
+# mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+ai:
+  deepseek:
+    api-key: ${AI_DEEPSEEK_API_KEY:}
+  embedding:
+    provider: doubao-ark
+    api-key: ${ARK_API_KEY:}
+    base-url: https://ark.cn-beijing.volces.com/api/v3
+    model: ${AI_EMBEDDING_MODEL:}
+    fallback-local: false

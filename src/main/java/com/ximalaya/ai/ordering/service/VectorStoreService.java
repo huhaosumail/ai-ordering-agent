@@ -46,7 +46,8 @@ public class VectorStoreService {
                     row.setEmbeddingJson(json);
                     row.setDimension(embedding.length);
                     row.setUpdatedAt(LocalDateTime.now());
-                    return embeddingRepository.save(row);
+                    return embeddingRepository.deleteById(dishId)
+                            .then(embeddingRepository.save(row));
                 })
                 .doOnSuccess(saved -> memoryIndex.put(dishId, new IndexedVector(
                         dishId, embedding, contentText, dishName, category)))

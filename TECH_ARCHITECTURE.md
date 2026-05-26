@@ -16,7 +16,7 @@ Client / 飞书 / 前端
         │
         ├── AgentService ──► DeepSeek Chat API
         │       ├── Tools (查菜/销量榜/语义检索/下单)
-        │       └── RagService ──► EmbeddingService ──► bge-m3 / 方舟 / 本地向量
+        │       └── RagService ──► EmbeddingService ──► 火山方舟 Ark /embeddings
         ├── AiOrderingService ──► DeepSeek
         ├── Dish / Order / Category Services
         └── OperationLogWebFilter
@@ -35,7 +35,7 @@ Client / 飞书 / 前端
 | 框架 | Spring Boot 3.2.5 | WebFlux + Validation |
 | 数据库 | H2 + R2DBC | 演示用内存库；`schema.sql` 初始化 |
 | 对话 LLM | DeepSeek | `/chat/completions` |
-| 向量 | VikingDB bge-m3 / 火山方舟 | `/api/data/embedding/version/2` 或 `/embeddings` |
+| 向量 | 火山方舟 Ark | `POST .../api/v3/embeddings`，`model=ep-xxx` |
 | HTTP | OkHttp 4.12 | LLM、Embedding、飞书 |
 | 前端 | React 19 + Vite 8 | 见 [frontend/README.md](./frontend/README.md) |
 | Agent 辅助 | Cursor Skills | `.cursor/skills/ai-ordering-dev` |
@@ -83,23 +83,26 @@ Client / 飞书 / 前端
 <function name="query_dishes_sales_rank" params='{"limit":5}'>
 ```
 
-### 3.3 RAG 与向量
+### 3.3 RAG 与向量库
+
+**存储形态**：H2 表 `dish_embedding`（JSON 向量）+ `VectorStoreService` 内存 `ConcurrentHashMap`，检索为全量余弦相似度（非 Milvus/pgvector）。
 
 | 类 | 职责 |
 |----|------|
-| `EmbeddingService` | 按 `ai.embedding.provider` 选择客户端 |
-| `DoubaoBgeM3EmbeddingClient` | VikingDB embedding v2，`model_name=bge-m3`，1024 维 |
-| `DoubaoArkEmbeddingClient` | 火山方舟 OpenAI 兼容 `/embeddings` |
-| `VectorStoreService` | `dish_embedding` 持久化 + 内存余弦检索 |
-| `DishVectorIndexService` | 菜品全文索引、增量更新 |
-| `RagService` | 检索、格式化 Agent 上下文 |
+| `EmbeddingService` | 仅 `doubao-ark`；封装方舟 embed 与可选 `fallback-local` |
+| `DoubaoArkEmbeddingClient` | `POST {baseUrl}/embeddings`，Bearer `ARK_API_KEY`，`model=ep-xxx` |
+| `VectorStoreService` | upsert / reload / similaritySearch |
+| `DishVectorIndexService` | 菜品索引文本、reindexAll、增量 indexDish |
+| `RagService` | retrieve、formatSearchResult、Agent 上下文注入 |
 
 数据流：
 
 ```text
-dish 行 → 拼接索引文本 → embed → dish_embedding 表 + 内存 Map
-用户 query → embed → Top-K cosine → 注入 Prompt / 工具返回
+dish 行 → 拼接索引文本 → 方舟 embed → dish_embedding + 内存 Map
+用户 query → 方舟 embed → Top-K cosine (min-score) → Prompt / semantic_search_dishes
 ```
+
+`GET /api/rag/status` 返回：`embeddingProvider`、`embeddingEndpoint`、`indexedCount`、`vectorStore`。
 
 ### 3.4 飞书
 
@@ -180,7 +183,7 @@ Feishu --> [FeishuController]
 | 前缀 | 用途 |
 |------|------|
 | `ai.deepseek.*` | Agent / AiOrdering 对话 |
-| `ai.embedding.*` | RAG 向量化（provider: `doubao-bge-m3` \| `doubao-ark` \| `openai`） |
+| `ai.embedding.*` | RAG 向量化（仅火山方舟 `doubao-ark`，`ARK_API_KEY` + `ep-xxx`） |
 | `rag.*` | 开关、top-k、min-score、是否注入 Prompt |
 | `feishu.*` | 飞书机器人 |
 | `agent.ordering.*` | 模拟模式、记忆条数、Prompt |

@@ -2,9 +2,7 @@ package com.ximalaya.ai.ordering.service;
 
 import com.ximalaya.ai.ordering.config.EmbeddingProperties;
 import com.ximalaya.ai.ordering.embedding.DoubaoArkEmbeddingClient;
-import com.ximalaya.ai.ordering.embedding.DoubaoBgeM3EmbeddingClient;
 import com.ximalaya.ai.ordering.embedding.EmbeddingClient;
-import com.ximalaya.ai.ordering.embedding.OpenAiCompatibleEmbeddingClient;
 import com.ximalaya.ai.ordering.vector.VectorMath;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
@@ -26,35 +24,53 @@ public class EmbeddingService {
 
     public EmbeddingService(EmbeddingProperties properties) {
         this.properties = properties;
+        assertArkProvider(properties);
         OkHttpClient httpClient = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .readTimeout(Duration.ofSeconds(60))
                 .writeTimeout(Duration.ofSeconds(15))
                 .build();
-        this.embeddingClient = createClient(properties, httpClient);
-        log.info("Embedding 已启用 provider={}, model/bge={}",
-                properties.getProvider(),
-                "doubao-bge-m3".equalsIgnoreCase(properties.getProvider())
-                        ? properties.getModelName() : properties.getModel());
+        this.embeddingClient = new DoubaoArkEmbeddingClient(properties, httpClient);
+        if (properties.isConfigured()) {
+            log.info("Embedding 火山方舟已配置 endpoint={}, baseUrl={}",
+                    properties.getModel(), properties.getBaseUrl());
+        } else {
+            log.warn("Embedding 未配置 ARK_API_KEY / AI_EMBEDDING_MODEL(ep-xxx)，"
+                    + "RAG 将{}",
+                    properties.isFallbackLocal() ? "使用本地向量兜底" : "在调用时失败");
+        }
     }
 
-    private static EmbeddingClient createClient(EmbeddingProperties properties, OkHttpClient httpClient) {
-        String provider = properties.getProvider() == null ? "openai" : properties.getProvider().trim().toLowerCase();
-        return switch (provider) {
-            case "doubao-ark", "ark", "volcengine-ark" -> new DoubaoArkEmbeddingClient(properties, httpClient);
-            case "doubao-bge-m3", "bge-m3", "vikingdb-bge-m3" -> new DoubaoBgeM3EmbeddingClient(properties, httpClient);
-            default -> new OpenAiCompatibleEmbeddingClient(properties, httpClient);
-        };
+    private static void assertArkProvider(EmbeddingProperties properties) {
+        String provider = properties.getProvider() == null ? "" : properties.getProvider().trim().toLowerCase();
+        if (!provider.isEmpty()
+                && !"doubao-ark".equals(provider)
+                && !"ark".equals(provider)
+                && !"volcengine-ark".equals(provider)) {
+            throw new IllegalStateException(
+                    "仅支持火山方舟 Embedding（ai.embedding.provider=doubao-ark），当前: " + provider);
+        }
+        properties.setProvider("doubao-ark");
+    }
+
+    public EmbeddingProperties getProperties() {
+        return properties;
     }
 
     public Mono<float[]> embed(String text) {
         if (text == null || text.isBlank()) {
             return Mono.just(localEmbed(""));
         }
+        if (!properties.isConfigured()) {
+            if (properties.isFallbackLocal()) {
+                return Mono.just(localEmbed(text));
+            }
+            return Mono.error(new IllegalStateException(
+                    "未配置火山方舟：请设置 ARK_API_KEY 与 AI_EMBEDDING_MODEL=ep-xxx"));
+        }
         return Mono.fromCallable(() -> embeddingClient.embed(text))
                 .onErrorResume(e -> {
-                    log.warn("Embedding [{}] 失败，{}: {}",
-                            properties.getProvider(),
+                    log.warn("火山方舟 Embedding 失败，{}: {}",
                             properties.isFallbackLocal() ? "使用本地向量" : "抛出异常",
                             e.getMessage());
                     if (properties.isFallbackLocal()) {
@@ -65,7 +81,7 @@ public class EmbeddingService {
     }
 
     /**
-     * 本地确定性向量（API 不可用时的兜底，维度由 ai.embedding.dimensions 控制）
+     * 本地确定性向量（仅 fallback-local=true 且 API 不可用时）
      */
     public float[] localEmbed(String text) {
         int dim = properties.getDimensions();

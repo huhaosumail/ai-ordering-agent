@@ -1,7 +1,9 @@
 package com.ximalaya.ai.ordering.controller;
 
 import com.ximalaya.ai.ordering.dto.response.ApiResponse;
+import com.ximalaya.ai.ordering.config.EmbeddingProperties;
 import com.ximalaya.ai.ordering.service.DishVectorIndexService;
+import com.ximalaya.ai.ordering.service.EmbeddingService;
 import com.ximalaya.ai.ordering.service.RagService;
 import com.ximalaya.ai.ordering.service.VectorStoreService;
 import com.ximalaya.ai.ordering.vector.ScoredDocument;
@@ -19,13 +21,16 @@ public class RagController {
     private final RagService ragService;
     private final DishVectorIndexService dishVectorIndexService;
     private final VectorStoreService vectorStoreService;
+    private final EmbeddingProperties embeddingProperties;
 
     public RagController(RagService ragService,
                          DishVectorIndexService dishVectorIndexService,
-                         VectorStoreService vectorStoreService) {
+                         VectorStoreService vectorStoreService,
+                         EmbeddingService embeddingService) {
         this.ragService = ragService;
         this.dishVectorIndexService = dishVectorIndexService;
         this.vectorStoreService = vectorStoreService;
+        this.embeddingProperties = embeddingService.getProperties();
     }
 
     @GetMapping("/search")
@@ -55,7 +60,11 @@ public class RagController {
         return vectorStoreService.count()
                 .map(count -> ResponseEntity.ok(ApiResponse.success(Map.of(
                         "enabled", ragService.isEnabled(),
-                        "indexedCount", count
+                        "indexedCount", count,
+                        "embeddingProvider", embeddingProperties.getProvider(),
+                        "embeddingEndpoint", embeddingProperties.getModel(),
+                        "embeddingConfigured", embeddingProperties.isConfigured(),
+                        "vectorStore", "h2-dish_embedding+memory"
                 ))));
     }
 }

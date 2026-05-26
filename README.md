@@ -23,7 +23,7 @@
 | 后端 API | Java 21 + WebFlux + R2DBC + H2 | `8080` |
 | 聊天前端 | React 19 + Vite 8 | `5173`（开发）/ `3000`（Docker） |
 | 对话模型 | DeepSeek Chat | `ai.deepseek.*` |
-| 向量模型 | 豆包 bge-m3 / 火山方舟（可选） | `ai.embedding.*` |
+| 向量模型 | **火山方舟** Embedding（`ep-xxx`） | `ai.embedding.*` + `ARK_API_KEY` |
 | 飞书（可选） | 事件订阅 Webhook | `feishu.enabled=true` |
 
 **典型路径**：
@@ -40,20 +40,24 @@
 - JDK 21+、Maven 3.9+
 - Node.js 18+（仅前端开发）
 - DeepSeek API Key（Agent 对话）
+- 火山方舟 API Key + **Embedding 推理接入点** `ep-xxx`（RAG 向量，与 DeepSeek 独立）
 
 ### 2. 配置密钥（勿提交 Git）
 
-复制 [.env.example](./.env.example)，或启用本地配置：
+复制模板并填入密钥：
 
 ```bash
-cp .env.example .env   # 自行填入，.env 已 gitignore
+cp .env.example .env                          # 或
+cp src/main/resources/application-local.yml.example \
+   src/main/resources/application-local.yml
 
-# 推荐：本地 profile（见 application-local.yml，已 gitignore）
 export SPRING_PROFILES_ACTIVE=local
 export AI_DEEPSEEK_API_KEY=你的DeepSeek密钥
+export ARK_API_KEY=你的方舟APIKey
+export AI_EMBEDDING_MODEL=ep-你的Embedding接入点ID
 ```
 
-`application-local.yml` 可集中填写 DeepSeek、方舟、飞书等密钥，详见 [.env.example](./.env.example)。
+`application-local.yml` 已 gitignore，可集中配置 DeepSeek、方舟、飞书；仓库内仅保留 [application-local.yml.example](./src/main/resources/application-local.yml.example) 与 [.env.example](./.env.example)。
 
 ### 3. 启动
 
@@ -74,7 +78,9 @@ cd frontend && npm install && npm run dev
 ### 4. Docker
 
 ```bash
-export AI_DEEPSEEK_API_KEY=你的密钥
+export AI_DEEPSEEK_API_KEY=你的DeepSeek密钥
+export ARK_API_KEY=你的方舟Key
+export AI_EMBEDDING_MODEL=ep-你的接入点ID
 docker compose up --build -d
 ```
 
@@ -103,8 +109,9 @@ docker compose up --build -d
 
 ### RAG — `/api/rag`
 
-- 启动后自动索引示例菜品；`POST /api/rag/reindex` 可重建  
-- Embedding：`doubao-bge-m3`（默认）或 `doubao-ark`，与 **DeepSeek 聊天独立**  
+- 启动后自动对示例菜品建向量索引；`POST /api/rag/reindex` 可全量重建  
+- 向量化仅走 **火山方舟** `POST /embeddings`（`model` = 接入点 `ep-xxx`）  
+- 详见下文 [向量库与 RAG 技术架构](#向量库与-rag-技术架构)
 
 ### 飞书机器人（可选）— `/api/feishu/webhook`
 
@@ -117,7 +124,83 @@ docker compose up --build -d
 - `/api/ai/*`：直接调 DeepSeek 解析/推荐（不经 Agent 会话）  
 - `/api/logs`：操作日志与 `X-Trace-Id`  
 
-详细配置步骤见下文 [配置参考](#配置参考)；架构图见 [TECH_ARCHITECTURE.md](./TECH_ARCHITECTURE.md)。
+详细配置见 [配置参考](#配置参考)；模块调用链见 [TECH_ARCHITECTURE.md](./TECH_ARCHITECTURE.md)。
+
+---
+
+## 向量库与 RAG 技术架构
+
+本项目**不使用** Milvus / pgvector 等外置向量数据库，而是 **H2 持久化 + 进程内余弦检索** 的轻量方案，向量化统一由 **火山方舟 Embedding 接入点** 完成。
+
+### 架构总览
+
+```text
+┌─────────────────┐     POST /embeddings      ┌──────────────────────────┐
+│  dish 业务表    │ ──索引文本──────────────► │ 火山方舟 Ark API          │
+│  (H2 R2DBC)     │                           │ model = ep-xxx           │
+└────────┬────────┘                           │ Authorization: Bearer  │
+         │                                    └────────────┬─────────────┘
+         │  DishVectorIndexService                          │ float[]
+         ▼                                                  ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  VectorStoreService                                                     │
+│  · 写入 dish_embedding（embedding_json, dimension, content_hash）       │
+│  · 内存 ConcurrentHashMap 缓存，检索时 cosine similarity                  │
+└────────┬───────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────┐     Top-K + min-score     ┌──────────────────────────┐
+│  RagService     │ ────────────────────────► │ Agent Prompt /           │
+│                 │                           │ semantic_search_dishes   │
+└─────────────────┘                           └──────────────────────────┘
+```
+
+### 组件说明
+
+| 层级 | 类 / 表 | 职责 |
+|------|---------|------|
+| **向量化 API** | `DoubaoArkEmbeddingClient` | 调用 `https://ark.cn-beijing.volces.com/api/v3/embeddings`，`model` 填控制台接入点 ID |
+| **编排** | `EmbeddingService` | 仅支持 `doubao-ark`；未配置 Key/ep 时默认报错（可开 `fallback-local`） |
+| **索引** | `DishVectorIndexService` | 菜品名+描述+分类拼文本 → embed → upsert |
+| **存储** | `dish_embedding` 表 | H2 存 JSON 向量与元数据；启动 `reloadFromDatabase()` |
+| **检索** | `VectorStoreService` | 内存全量余弦相似度，返回 `ScoredDocument` |
+| **对外** | `RagController` | `/api/rag/reindex`、`/search`、`/status` |
+
+### 数据流
+
+1. **建索引**：`dish` → 拼接索引文本 → 方舟 embed → `dish_embedding` + 内存 Map  
+2. **查询**：用户 query → embed → 与内存中向量算 cosine → Top-K（`rag.top-k`，默认 5）过滤 `rag.min-score`  
+3. **Agent**：`rag.inject-to-agent-prompt=true` 时将检索结果注入系统上下文；或调用工具 `semantic_search_dishes`
+
+### 配置项（火山方舟）
+
+| 变量 / 配置 | 说明 |
+|-------------|------|
+| `ARK_API_KEY` / `ai.embedding.api-key` | 方舟 API Key（形如 `apikey-...`） |
+| `AI_EMBEDDING_MODEL` / `ai.embedding.model` | Embedding 推理接入点，如 `ep-20260526153248-chdn7` |
+| `AI_EMBEDDING_BASE_URL` | 默认 `https://ark.cn-beijing.volces.com/api/v3` |
+| `AI_EMBEDDING_FALLBACK_LOCAL` | 默认 `false`；`true` 时 API 失败用本地哈希向量（仅开发兜底） |
+| `rag.enabled` / `rag.top-k` / `rag.min-score` | 检索开关与阈值 |
+
+### 验证向量库
+
+```bash
+export SPRING_PROFILES_ACTIVE=local
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+# 状态：应显示 embeddingConfigured=true、indexedCount=8
+curl -s http://localhost:8080/api/rag/status | jq .
+
+# 全量重建（调用方舟 embed 写 dish_embedding）
+curl -s -X POST http://localhost:8080/api/rag/reindex | jq .
+
+# 语义检索
+curl -s "http://localhost:8080/api/rag/search/text?q=辣的下饭" | jq .
+```
+
+`/api/rag/status` 示例字段：`embeddingProvider`、`embeddingEndpoint`、`indexedCount`、`vectorStore=h2-dish_embedding+memory`。
+
+> **说明**：对话 LLM 仍用 DeepSeek（`ai.deepseek.*`），与方舟 Embedding **密钥、计费、接入点均独立**。
 
 ---
 
@@ -143,27 +226,21 @@ export AI_DEEPSEEK_MODEL=deepseek-chat          # 可选
 export AGENT_SIMULATION_MODE=false              # true=无 Key 时本地模拟
 ```
 
-### RAG / Embedding（与 DeepSeek 无关）
+### 火山方舟 Embedding（RAG 向量，与 DeepSeek 无关）
 
-**豆包 bge-m3（VikingDB）**
+在方舟控制台创建 **Embedding 推理接入点**，记下 `ep-xxx` 与 API Key：
 
 ```bash
-export AI_EMBEDDING_PROVIDER=doubao-bge-m3
-export VIKINGDB_EMBEDDING_TOKEN=你的Token
-export VIKINGDB_EMBEDDING_HOST=https://api-vikingdb.vikingdb.cn-beijing.volces.com
-export AI_EMBEDDING_DIMENSIONS=1024
+export ARK_API_KEY=你的方舟APIKey
+export AI_EMBEDDING_MODEL=ep-你的Embedding接入点ID
+export AI_EMBEDDING_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+export AI_EMBEDDING_FALLBACK_LOCAL=false
+
 curl -X POST http://localhost:8080/api/rag/reindex
+curl "http://localhost:8080/api/rag/search/text?q=辣的下饭"
 ```
 
-**火山方舟**
-
-```bash
-export AI_EMBEDDING_PROVIDER=doubao-ark
-export ARK_API_KEY=你的方舟Key
-export AI_EMBEDDING_MODEL=ep-你的向量化接入点ID
-```
-
-`ai.embedding.fallback-local=true` 时 API 失败会降级本地向量，不阻塞启动。
+仅当 `AI_EMBEDDING_FALLBACK_LOCAL=true` 时，方舟调用失败才会降级为本地哈希向量（不推荐生产使用）。
 
 ### 飞书（可选）
 
@@ -201,11 +278,13 @@ curl -X POST http://localhost:8080/api/agent/chat \
 curl http://localhost:8080/api/dishes/top-sales
 ```
 
-### RAG
+### RAG / 向量库
 
 ```bash
-curl "http://localhost:8080/api/rag/search/text?q=辣的下饭"
-curl -X POST http://localhost:8080/api/rag/reindex
+curl -s http://localhost:8080/api/rag/status
+curl -s -X POST http://localhost:8080/api/rag/reindex
+curl -s "http://localhost:8080/api/rag/search/text?q=辣的下饭"
+curl -s "http://localhost:8080/api/rag/search?q=清淡"
 ```
 
 ### 日志
@@ -226,12 +305,13 @@ ai-ordering-agent/
 ├── frontend/                # React 小助手
 ├── src/main/java/.../ordering/
 │   ├── agent/               # AgentService、Tools
-│   ├── embedding/           # 豆包/方舟/OpenAI 向量化客户端
+│   ├── embedding/           # 火山方舟 Ark Embedding 客户端
 │   ├── feishu/              # 飞书 Webhook
 │   ├── service/             # RAG、业务、ChatMemory
 │   └── controller/
 ├── src/main/resources/
 │   ├── application.yml      # 默认配置（无密钥）
+│   ├── application-local.yml.example
 │   └── application-local.yml  # 本地密钥（gitignore）
 ├── .env.example
 ├── README.md
@@ -252,7 +332,10 @@ ai-ordering-agent/
 |------|------|
 | 回复像固定模板 | DeepSeek Key 无效或 402 → 检查 `AI_DEEPSEEK_API_KEY` |
 | 语义搜不到菜 | `POST /api/rag/reindex`；调低 `rag.min-score` |
-| Embedding 失败 | 核对 VikingDB Token / 方舟 `ep-xxx`；或依赖 `fallback-local` |
+| Embedding 失败 | 检查 `ARK_API_KEY`、`AI_EMBEDDING_MODEL=ep-xxx`；`curl /api/rag/status` 看 `embeddingConfigured` |
+| indexedCount=0 | 配置方舟后执行 `POST /api/rag/reindex` |
+| `API key format is incorrect` | 使用控制台 **API Key 管理** 中完整密钥（多为 `ark-` 前缀）；`apikey-xxx` 若为展示 ID 不能当 Bearer 使用 |
+| 方舟 500 InternalServiceError | 检查接入点 `ep-xxx` 是否为 **Embedding** 类型且与 Key 同账号/已授权 |
 | 飞书无回复 | `FEISHU_ENABLED=true`、权限发布、公网 HTTPS、@ 机器人 |
 | 前端连不上 API | 先启后端，再 `npm run dev` |
 

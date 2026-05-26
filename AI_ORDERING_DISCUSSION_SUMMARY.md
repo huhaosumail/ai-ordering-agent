@@ -9,7 +9,7 @@
 
 - **时间**：2026-05-21 ~ 2026-05-22  
 - **主题**：响应式 AI 智能点餐系统的设计与实现  
-- **现状**：项目已演进为含 **Agent 工具链**、**RAG（bge-m3）**、**飞书机器人** 的完整示例，见 README。
+- **现状**：项目已演进为含 **Agent 工具链**、**RAG（火山方舟 Embedding + H2 向量表）**、**飞书机器人** 的完整示例，见 README。
 
 ---
 
@@ -59,7 +59,7 @@
 以下在讨论稿之后已落地，细节见 README：
 
 - Agent 多轮对话与 6 个工具（`query_dishes`、`semantic_search_dishes`、`query_dishes_sales_rank`、`query_orders`、`query_categories`、`create_order`）  
-- RAG + `dish_embedding` 向量索引  
+- RAG + `dish_embedding`（H2 + 内存检索）+ 火山方舟 `ep-xxx` Embedding  
 - 飞书 `im.message.receive_v1` Webhook  
 - 操作日志 `operation_log` + `X-Trace-Id`  
 - React 聊天前端、Docker Compose  
