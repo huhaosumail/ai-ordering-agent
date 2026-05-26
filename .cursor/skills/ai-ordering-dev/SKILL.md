@@ -60,6 +60,15 @@ curl -X POST http://localhost:8080/api/agent/chat \
   -d '{"sessionId":"dev-1","message":"销量最高的菜？"}'
 ```
 
+## 评估
+
+```bash
+mvn test
+curl -s -X POST "http://localhost:8080/api/eval/run?suite=all"
+```
+
+黄金集：`src/main/resources/eval/`。
+
 ## 菜品变更
 
 - 单条：`DishServiceImpl` → `DishVectorIndexService.indexDish`

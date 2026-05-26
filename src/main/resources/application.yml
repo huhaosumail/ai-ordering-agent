@@ -38,6 +38,10 @@ ai:
     dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
     fallback-local: ${AI_EMBEDDING_FALLBACK_LOCAL:false}
 
+eval:
+  enabled: ${EVAL_ENABLED:true}
+  reindex-before-rag: ${EVAL_REINDEX_BEFORE_RAG:true}
+
 rag:
   enabled: ${RAG_ENABLED:true}
   top-k: ${RAG_TOP_K:5}

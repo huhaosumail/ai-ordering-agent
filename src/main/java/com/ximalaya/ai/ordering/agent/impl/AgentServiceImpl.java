@@ -1,6 +1,8 @@
 package com.ximalaya.ai.ordering.agent.impl;
 
+import com.ximalaya.ai.ordering.agent.AgentIntentMatcher;
 import com.ximalaya.ai.ordering.agent.AgentService;
+import com.ximalaya.ai.ordering.agent.OrderIntentParser;
 import com.ximalaya.ai.ordering.agent.tool.CategoryQueryTool;
 import com.ximalaya.ai.ordering.agent.tool.CreateOrderTool;
 import com.ximalaya.ai.ordering.agent.tool.DishQueryTool;
@@ -76,6 +78,8 @@ public class AgentServiceImpl implements AgentService {
             """;
 
     private final RagService ragService;
+    private final AgentIntentMatcher agentIntentMatcher;
+    private final OrderIntentParser orderIntentParser;
 
     public AgentServiceImpl(ChatMemoryServiceImpl chatMemoryService,
                            OperationLogService operationLogService,
@@ -86,6 +90,8 @@ public class AgentServiceImpl implements AgentService {
                            CategoryQueryTool categoryQueryTool,
                            CreateOrderTool createOrderTool,
                            RagService ragService,
+                           AgentIntentMatcher agentIntentMatcher,
+                           OrderIntentParser orderIntentParser,
                            @Value("${ai.deepseek.api-key}") String apiKey,
                            @Value("${ai.deepseek.base-url}") String baseUrl,
                            @Value("${ai.deepseek.model}") String model,
@@ -93,6 +99,8 @@ public class AgentServiceImpl implements AgentService {
         this.chatMemoryService = chatMemoryService;
         this.operationLogService = operationLogService;
         this.ragService = ragService;
+        this.agentIntentMatcher = agentIntentMatcher;
+        this.orderIntentParser = orderIntentParser;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.model = model;
@@ -204,31 +212,9 @@ public class AgentServiceImpl implements AgentService {
         String userMsg = extractLatestUserMessage(prompt);
 
         // 下单意图优先（避免对话历史里的「麻辣」误触发查菜）
-        Optional<Map<String, Object>> orderParams = tryParseOrderIntent(userMsg, userId);
-        if (orderParams.isPresent()) {
-            return toolCall("create_order", orderParams.get());
-        }
-
-        if (userMsg.contains("辣") || userMsg.contains("麻辣") || userMsg.contains("推荐")
-                || userMsg.contains("好吃") || userMsg.contains("口味")) {
-            return toolCall("semantic_search_dishes", Map.of("query", userMsg));
-        }
-        if (userMsg.contains("宫保鸡丁") || userMsg.contains("鸡丁")) {
-            return toolCall("query_dishes", Map.of("keyword", "宫保鸡丁"));
-        }
-        if (userMsg.contains("订单") || userMsg.contains("订了") || userMsg.contains("购买")) {
-            return toolCall("query_orders", Map.of());
-        }
-        if (userMsg.contains("分类") || userMsg.contains("种类")) {
-            return toolCall("query_categories", Map.of());
-        }
-        if (containsSalesRankIntent(userMsg)) {
-            return toolCall("query_dishes_sales_rank", Map.of());
-        }
-        if (containsDishQueryIntent(userMsg)) {
-            return toolCall("query_dishes", Map.of());
-        }
-        return "你好！我是智能点餐小助手，请问需要帮您查询菜品、下单，还是有其他问题？";
+        return agentIntentMatcher.match(userMsg, userId)
+                .map(intent -> toolCall(intent.toolName(), intent.params()))
+                .orElse("你好！我是智能点餐小助手，请问需要帮您查询菜品、下单，还是有其他问题？");
     }
 
     private String extractLatestUserMessage(String prompt) {
@@ -239,99 +225,6 @@ public class AgentServiceImpl implements AgentService {
         String part = prompt.substring(marker + "用户最新提问：".length());
         int nextLine = part.indexOf('\n');
         return (nextLine >= 0 ? part.substring(0, nextLine) : part).trim();
-    }
-
-    private boolean containsSalesRankIntent(String userMsg) {
-        return userMsg.contains("销量") || userMsg.contains("畅销") || userMsg.contains("卖得最好")
-                || userMsg.contains("卖得好") || (userMsg.contains("排行") && userMsg.contains("榜"));
-    }
-
-    private boolean containsDishQueryIntent(String userMsg) {
-        return userMsg.contains("菜单") || userMsg.contains("好吃") || userMsg.contains("推荐")
-                || userMsg.contains("有什么") || userMsg.contains("有哪些");
-    }
-
-    private Optional<Map<String, Object>> tryParseOrderIntent(String userMsg, Long userId) {
-        if (!userMsg.contains("份") && !userMsg.contains("我要") && !userMsg.contains("下单")
-                && !userMsg.contains("来一") && !userMsg.contains("点") && !userMsg.contains("来")) {
-            return Optional.empty();
-        }
-
-        List<Map<String, Object>> items = parseOrderItems(userMsg);
-        if (items.isEmpty()) {
-            return Optional.empty();
-        }
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("items", items);
-        params.put("userId", userId != null ? userId : 1L);
-        return Optional.of(params);
-    }
-
-    /** 支持「三份麻婆豆腐」与「麻婆豆腐 三份」等说法 */
-    private List<Map<String, Object>> parseOrderItems(String userMsg) {
-        List<Map<String, Object>> items = new ArrayList<>();
-        String qty = "[一二两三四五六七八九十\\d]+";
-
-        // 三份麻婆豆腐 / 2份 宫保鸡丁
-        java.util.regex.Pattern qtyFirst = java.util.regex.Pattern.compile(
-                "(" + qty + ")份\\s*([^，,。！!？?\\s谢谢]+)");
-        java.util.regex.Matcher m1 = qtyFirst.matcher(userMsg);
-        while (m1.find()) {
-            addOrderItem(items, m1.group(2), m1.group(1));
-        }
-
-        // 麻婆豆腐三份 / 麻婆豆腐 三份
-        java.util.regex.Pattern nameFirst = java.util.regex.Pattern.compile(
-                "([\\u4e00-\\u9fa5A-Za-z0-9]{2,}?)\\s*(" + qty + ")份");
-        java.util.regex.Matcher m2 = nameFirst.matcher(userMsg);
-        while (m2.find()) {
-            addOrderItem(items, m2.group(1), m2.group(2));
-        }
-
-        return items;
-    }
-
-    private void addOrderItem(List<Map<String, Object>> items, String rawName, String rawQty) {
-        String dishName = normalizeDishName(rawName);
-        if (dishName.isEmpty()) {
-            return;
-        }
-        int qty = parseQuantity(rawQty);
-        boolean duplicate = items.stream()
-                .anyMatch(i -> dishName.equals(String.valueOf(i.get("name"))));
-        if (!duplicate) {
-            items.add(Map.of("name", dishName, "quantity", qty));
-        }
-    }
-
-    private String normalizeDishName(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        String name = raw.trim()
-                .replaceAll("^(我要|来|点|订|给我|帮我|想要|需要)", "")
-                .trim();
-        return name.length() >= 2 ? name : "";
-    }
-
-    private int parseQuantity(String raw) {
-        if (raw.matches("\\d+")) {
-            return Integer.parseInt(raw);
-        }
-        return switch (raw) {
-            case "一" -> 1;
-            case "二", "两" -> 2;
-            case "三" -> 3;
-            case "四" -> 4;
-            case "五" -> 5;
-            case "六" -> 6;
-            case "七" -> 7;
-            case "八" -> 8;
-            case "九" -> 9;
-            case "十" -> 10;
-            default -> 1;
-        };
     }
 
     private String toolCall(String name, Map<String, Object> params) {
@@ -390,7 +283,7 @@ public class AgentServiceImpl implements AgentService {
         List<ToolCall> toolCalls = parseToolCalls(response);
         
         if (toolCalls.isEmpty()) {
-            Optional<Map<String, Object>> orderParams = tryParseOrderIntent(userInput, userId);
+            Optional<Map<String, Object>> orderParams = orderIntentParser.tryParse(userInput, userId);
             if (orderParams.isPresent()) {
                 log.info("LLM 未返回工具调用，根据用户输入兜底下单: {}", userInput);
                 return processResponse(sessionId, toolCall("create_order", orderParams.get()), userId, userInput);

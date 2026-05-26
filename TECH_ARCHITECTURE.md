@@ -237,6 +237,13 @@ Feishu --> [FeishuController]
 | GET | `/status` |
 | POST | `/reindex` |
 
+### 评估 — `/api/eval`
+
+| 方法 | 路径 |
+|------|------|
+| POST | `/run?suite=all\|rag\|agent-intent` |
+| GET | `/info` |
+
 ### 飞书 — `/api/feishu`
 
 | 方法 | 路径 |
@@ -276,25 +283,40 @@ Feishu --> [FeishuController]
 
 ---
 
-## 9. Cursor Skills
+## 9. 评估体系
 
-`.cursor/skills/ai-ordering-dev`：本地启动、方舟 multimodal 配置、RAG/Agent curl、新增 Tool 步骤。
+| 组件 | 职责 |
+|------|------|
+| `EvalDatasetLoader` | 加载 `classpath:eval/*.json` |
+| `RagEvaluationRunner` | Hit@K、Recall@K、MRR |
+| `AgentIntentEvaluationRunner` | 工具名准确率 |
+| `EvaluationService` | 编排 reindex + 套件执行 |
+| `EvalController` | HTTP 触发与说明 |
+| `AgentIntentMatcher` / `OrderIntentParser` | 与模拟模式共用，保证可测 |
+
+配置：`eval.enabled`、`eval.reindex-before-rag`。
 
 ---
 
-## 10. 扩展建议
+## 10. Cursor Skills
+
+`.cursor/skills/ai-ordering-dev`：本地启动、方舟 multimodal、RAG/Agent/评估命令。
+
+---
+
+## 11. 扩展建议
 
 | 方向 | 建议 |
 |------|------|
 | 向量库 | H2+内存 → PostgreSQL pgvector / Milvus；ANN 索引 |
 | Embedding | 图片 URL 入 multimodal input；批量 embed |
-| LLM | SSE 流式输出；重试与限流 |
+| LLM | SSE 流式输出；LLM-as-Judge 对话评估 |
 | 飞书 | 卡片消息、富文本 |
-| 测试 | Ark 集成测试（`@EnabledIfEnvironmentVariable`）；工具契约测试 |
+| 评估 | 增加端到端 Agent 对话黄金集；Ark 向量专用 profile |
 
 ---
 
-## 11. 相关文档
+## 12. 相关文档
 
 - [README.md](./README.md)
 - [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md)

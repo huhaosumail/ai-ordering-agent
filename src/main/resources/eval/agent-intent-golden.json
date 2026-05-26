@@ -1,0 +1,32 @@
+[
+  {
+    "id": "intent-sales",
+    "message": "销量最高的菜有哪些",
+    "expectedTool": "query_dishes_sales_rank"
+  },
+  {
+    "id": "intent-semantic",
+    "message": "有什么辣的菜推荐",
+    "expectedTool": "semantic_search_dishes"
+  },
+  {
+    "id": "intent-order",
+    "message": "麻婆豆腐三份",
+    "expectedTool": "create_order"
+  },
+  {
+    "id": "intent-keyword",
+    "message": "查一下宫保鸡丁",
+    "expectedTool": "query_dishes"
+  },
+  {
+    "id": "intent-category",
+    "message": "有哪些分类",
+    "expectedTool": "query_categories"
+  },
+  {
+    "id": "intent-orders",
+    "message": "我的订单",
+    "expectedTool": "query_orders"
+  }
+]

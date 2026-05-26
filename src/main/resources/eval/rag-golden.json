@@ -1,0 +1,30 @@
+[
+  {
+    "id": "rag-spicy",
+    "query": "辣的下饭",
+    "expectedDishes": ["麻婆豆腐", "鱼香肉丝", "宫保鸡丁"],
+    "topK": 5,
+    "minRecall": 0.33
+  },
+  {
+    "id": "rag-dessert",
+    "query": "甜点推荐",
+    "expectedDishes": ["提拉米苏", "芒果布丁"],
+    "topK": 5,
+    "minRecall": 0.5
+  },
+  {
+    "id": "rag-western",
+    "query": "西餐",
+    "expectedDishes": ["黑椒牛柳", "意大利面"],
+    "topK": 5,
+    "minRecall": 0.5
+  },
+  {
+    "id": "rag-mapo",
+    "query": "麻婆豆腐",
+    "expectedDishes": ["麻婆豆腐"],
+    "topK": 3,
+    "minRecall": 1.0
+  }
+]

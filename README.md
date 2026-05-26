@@ -253,6 +253,48 @@ curl -s "http://localhost:8080/api/logs?module=AGENT&page=0&size=20"
 
 ---
 
+## 评估体系
+
+项目内置 **黄金集（Golden Set）+ 指标 + API + 自动化测试**，用于持续衡量 RAG 检索与 Agent 意图路由质量。
+
+### 评估范围
+
+| 套件 | 数据集 | 指标 | 说明 |
+|------|--------|------|------|
+| **rag** | `eval/rag-golden.json` | Hit@K、Recall@K、MRR | 语义检索是否召回期望菜品 |
+| **agent-intent** | `eval/agent-intent-golden.json` | 准确率 | 模拟模式工具路由（`AgentIntentMatcher`） |
+
+> LLM 端到端对话评估需外接人工或第三方 Judge，当前未纳入自动化（可后续扩展）。
+
+### 运行方式
+
+```bash
+# 全量（RAG 会先 reindex）
+curl -s -X POST "http://localhost:8080/api/eval/run?suite=all" | jq .
+
+# 仅 RAG / 仅意图
+curl -s -X POST "http://localhost:8080/api/eval/run?suite=rag&reindex=true"
+curl -s -X POST "http://localhost:8080/api/eval/run?suite=agent-intent"
+
+curl -s http://localhost:8080/api/eval/info
+```
+
+```bash
+# CI / 本地单元与集成测试
+mvn test
+```
+
+关闭评估 API：`EVAL_ENABLED=false`。
+
+### 扩展黄金集
+
+编辑 `src/main/resources/eval/*.json`，新增用例字段：
+
+- RAG：`id`、`query`、`expectedDishes`、`topK`、`minRecall`
+- Agent：`id`、`message`、`expectedTool`
+
+---
+
 ## 项目结构
 
 ```text
@@ -263,9 +305,11 @@ ai-ordering-agent/
 │   ├── agent/                   # AgentServiceImpl + 6 Tools
 │   ├── embedding/               # DoubaoArkEmbeddingClient
 │   ├── feishu/                  # Webhook（条件装配）
+│   ├── evaluation/              # 评估指标、Runner、黄金集加载
 │   ├── service/                 # RAG、业务、ChatMemory
 │   └── controller/
 ├── src/main/resources/
+│   ├── eval/                    # rag / agent-intent 黄金集 JSON
 │   ├── application.yml          # 默认配置（无密钥）
 │   └── application-local.yml.example
 ├── .env.example
