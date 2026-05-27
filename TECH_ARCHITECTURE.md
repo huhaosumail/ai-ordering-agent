@@ -371,6 +371,6 @@ Feishu --> [FeishuController]
 
 ## 12. 相关文档
 
-- [README.md](./README.md)
+- [README.md](./README.md) — 含「有什么比较辣的菜」「麻辣香锅两份」端到端示例
 - [AI_ORDERING_DISCUSSION_SUMMARY.md](./AI_ORDERING_DISCUSSION_SUMMARY.md)
 - [frontend/README.md](./frontend/README.md)

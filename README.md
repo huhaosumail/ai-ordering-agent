@@ -30,7 +30,8 @@
 
 | 用户说法 | 路径 |
 |----------|------|
-| 有什么辣的菜推荐？ | RAG / `semantic_search_dishes` |
+| 有什么比较辣的菜？ | RAG 注入 + `semantic_search_dishes`（见下文示例 ①） |
+| 麻辣香锅两份谢谢 | `create_order`（见下文示例 ②；示例库无此菜会失败） |
 | 销量最高的菜？ | `query_dishes_sales_rank` |
 | 麻婆豆腐来三份 | `create_order` |
 
@@ -417,9 +418,203 @@ ai-ordering-agent/
 
 ---
 
+## 端到端运行示例（两条用户话）
+
+以下假设：后端已启动、`POST /api/agent/chat`，`sessionId=demo-1`。飞书场景只是把请求换成 `feishu:{chat_id}`，**Agent 内部链路相同**。
+
+```bash
+curl -X POST http://localhost:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"demo-1","message":"有什么比较辣的菜"}'
+```
+
+---
+
+### 示例 ①：「有什么比较辣的菜」— 查菜 / 语义推荐
+
+**用户意图**：按口味模糊找菜，不是要下单。
+
+#### 第 0 步：请求进入系统
+
+```text
+浏览器/飞书 → POST /api/agent/chat
+  → OperationLogWebFilter 记日志、生成 X-Trace-Id
+  → AgentController → AgentServiceImpl.chat(sessionId, message, userId)
+```
+
+#### 第 1 步：写入对话记忆
+
+```text
+ChatMemoryService.addUserMessage   → 表 chat_history 插入 role=user
+ChatMemoryService.getMessagesForLlm → 取该 session 最近 10 条（首轮仅当前句）
+```
+
+#### 第 2 步：RAG 预检索（在调 DeepSeek 之前）
+
+与向量库、方舟的关系：
+
+```text
+用户句「有什么比较辣的菜」
+  → RagService.buildAgentContext(currentInput)
+       → EmbeddingService.embed(query)     ← 火山方舟：问题 → 向量
+       → VectorStoreService.similaritySearch ← dish_embedding + 内存：比相似度
+       → 格式化为【RAG 检索到的相关菜品…】文本块
+```
+
+此步**只把参考信息写进 Prompt**，还不等于已调用 Agent 工具。默认 `rag.inject-to-agent-prompt=true`。
+
+#### 第 3 步：组装 Prompt
+
+```text
+assemblePrompt =
+  SYSTEM_PROMPT（6 个工具说明）
+  + RAG 上下文（若有）
+  + 对话历史
+  + 「用户最新提问：有什么比较辣的菜」
+  + 要求输出 <function …> 或直接回答
+```
+
+#### 第 4 步：大模型决策（DeepSeek 或模拟）
+
+| 模式 | 行为 |
+|------|------|
+| **DeepSeek**（`AGENT_SIMULATION_MODE=false` 且 Key 有效） | HTTP `POST …/chat/completions`，由模型根据 Prompt 输出工具调用 |
+| **模拟**（无 Key / 显式开启模拟 / API 失败降级） | `AgentIntentMatcher`：句中含 **「辣」** → 固定返回 `semantic_search_dishes` |
+
+典型工具调用：
+
+```text
+<function name="semantic_search_dishes" params='{"query":"有什么比较辣的菜"}'>
+```
+
+#### 第 5 步：执行工具 `semantic_search_dishes`
+
+```text
+SemanticDishSearchTool.execute
+  → RagService.formatSearchResult(query)   ← 再次 embed + 检索（与第 2 步同源逻辑）
+  → 返回文本，例如：
+     「语义检索…共 N 道相关菜品：麻婆豆腐、鱼香肉丝…」
+```
+
+示例库里辣味相关常见：**麻婆豆腐**、**鱼香肉丝**、**宫保鸡丁**（含「辣」描述或语义相近）。
+
+#### 第 6 步：第二轮总结
+
+```text
+processResponse 发现工具调用
+  → executeTools → 结果写入 chat_history（role=tool）
+  → 再次 callDeepSeek（或 simulate 的 summarizeToolResults）
+  → 生成面向用户的自然语言推荐
+  → addAssistantMessage → 返回 JSON 给前端
+```
+
+**模拟模式**下若走到 `summarizeToolResults`，会把工具结果里的「找到 N 道菜品」整理成推荐话术。
+
+#### 本例涉及的数据表 / 外部服务
+
+| 环节 | 读写 |
+|------|------|
+| `chat_history` | 写 user / tool / assistant |
+| `dish_embedding` | 只读（检索） |
+| 火山方舟 | 调 Embedding（建库时已写过向量，此处是 query 向量） |
+| DeepSeek | 调 Chat（正常模式） |
+| `dish` / `orders` | 本例**不**下单，不写订单 |
+
+---
+
+### 示例 ②：「麻辣香锅两份谢谢」— 下单
+
+**用户意图**：指定菜名 + 数量，完成下单（「谢谢」为礼貌用语，解析时会去掉）。
+
+#### 第 0～2 步
+
+与示例 ① 相同：进入 `/api/agent/chat`、记日志、写 `chat_history`。
+
+RAG 仍可能跑一遍 `buildAgentContext`（对「麻辣香锅」做语义检索），但**不应替代下单**；最终应以 **create_order** 为准。
+
+#### 第 3～4 步：大模型 / 模拟如何选工具
+
+| 模式 | 预期 |
+|------|------|
+| **DeepSeek** | 根据 SYSTEM_PROMPT，输出 `create_order`，例如 `items:[{name:"麻辣香锅",quantity:2}]` |
+| **模拟** | 先 `OrderIntentParser.tryParse`：需识别「份」+ 菜名。推荐说法 **「麻辣香锅 两份」** 或 **「两份麻辣香锅」**（中间有空格更易命中正则）。**「麻辣香锅两份」无空格时，本地正则可能解析失败**；若失败且句中含「麻辣」，模拟路由可能误走 `semantic_search_dishes`（与下单冲突）——生产环境请用 DeepSeek 或改进解析。 |
+
+若 LLM **未**返回工具，`processResponse` 会用 `orderIntentParser.tryParse(userInput)` **兜底下单**。
+
+#### 第 5 步：执行工具 `create_order`
+
+```text
+CreateOrderTool.execute
+  → 按 name 在 dish 表模糊匹配（findByNameLike）
+  → 组装 OrderRequest（dishId + quantity）
+  → OrderService.createOrder
+  → 写 orders 表（状态 PENDING、items JSON、总金额）
+  → 返回「订单创建成功 / 下单失败：…」
+```
+
+**重要：当前示例数据只有 8 道菜**（宫保鸡丁、麻婆豆腐、鱼香肉丝等），**没有「麻辣香锅」**。
+
+因此本句在库里通常会：
+
+```text
+下单失败：未找到菜品: 麻辣香锅
+```
+
+若要演示成功下单，请说示例库存在的菜，例如：**「麻婆豆腐两份谢谢」**。
+
+#### 第 6 步：结果返回用户
+
+- 成功：`summarizeToolResults` 或 DeepSeek 总结 →「好的，已为您下单！订单号：…」
+- 失败：直接返回「下单失败：未找到菜品: 麻辣香锅」
+
+#### 本例涉及的数据表 / 外部服务
+
+| 环节 | 读写 |
+|------|------|
+| `chat_history` | 写 user / tool / assistant |
+| `dish` | 读（按名称匹配 dishId） |
+| `orders` | **写** 新订单 |
+| `operation_log` | 记 AGENT、下单相关日志 |
+| DeepSeek | 正常模式下参与工具选择与总结 |
+| RAG / 方舟 | 可能只参与 Prompt 注入，不参与订单落库 |
+
+---
+
+### 两条路径对比（一图看懂）
+
+```text
+                    POST /api/agent/chat
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+     「有什么比较辣的菜」           「麻辣香锅两份谢谢」
+              │                           │
+     RAG embed + 检索（可选注入）    RAG 可能注入（次要）
+              │                           │
+     DeepSeek / 模拟                 DeepSeek / 解析兜底
+              │                           │
+     semantic_search_dishes          create_order
+              │                           │
+     读 dish_embedding               读 dish + 写 orders
+              │                           │
+     文本推荐列表                     成功/失败订单信息
+```
+
+| 维度 | 比较辣的菜 | 麻辣香锅两份 |
+|------|------------|--------------|
+| 主要工具 | `semantic_search_dishes` | `create_order` |
+| 方舟 Embedding | 检索 query + 菜品向量 | 通常仅 RAG 预检索（若有） |
+| `dish_embedding` | 核心：算相似度 | 一般不写 |
+| 业务表 | 只读菜品 | 写 `orders` |
+| 示例库实测 | 可命中辣味菜 | **无麻辣香锅 → 失败** |
+
+更细的模块说明见 [TECH_ARCHITECTURE.md](./TECH_ARCHITECTURE.md)。
+
+---
+
 ## 测试数据
 
-启动后加载 3 个分类、8 道示例菜（含 `sales_count`）。辣味检索可命中麻婆豆腐、鱼香肉丝等；销量 Top 3 约为宫保鸡丁、麻婆豆腐、鱼香肉丝。
+启动后加载 3 个分类、8 道示例菜（含 `sales_count`）。辣味检索可命中麻婆豆腐、鱼香肉丝等；销量 Top 3 约为宫保鸡丁、麻婆豆腐、鱼香肉丝。**不含「麻辣香锅」**，下单该菜会提示未找到。
 
 ---
 
@@ -434,6 +629,8 @@ ai-ordering-agent/
 | `indexedCount=0` | 配置方舟后执行 reindex；看 `/api/rag/status` 的 `embeddingConfigured` |
 | 飞书无回复 | `FEISHU_ENABLED=true`、应用发布、HTTPS、事件订阅 |
 | 前端 502 | 先启动后端 `8080`，再 `npm run dev` |
+| 下单「麻辣香锅」失败 | 示例库无此菜；可改说「麻婆豆腐两份」或先在 `dish` 表新增菜品 |
+| 模拟模式把下单当成搜菜 | 句中含「麻辣」会优先语义检索；请用 DeepSeek 或写「麻婆豆腐 两份」 |
 
 ---
 
